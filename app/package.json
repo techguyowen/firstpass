@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "Your shoot's first pass, done in minutes.",
   "license": "MIT",
-  "author": "FirstPass",
+  "author": "FirstPass <support@firstpass.app>",
   "repository": {
     "type": "git",
     "url": "https://github.com/techguyowen/firstpass.git"

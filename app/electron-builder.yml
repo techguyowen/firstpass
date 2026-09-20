@@ -30,7 +30,10 @@ nsis:
 linux:
   executableName: firstpass
   category: Graphics
+  maintainer: "FirstPass <support@firstpass.app>"
   target:
     - target: AppImage
+      arch: [x64]
     - target: deb
+      arch: [x64]
 

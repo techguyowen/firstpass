@@ -36,7 +36,7 @@ jobs:
             target_os: Linux
             platform: linux
             arch: x64
-            builder_flags: "--linux"
+            builder_flags: "--linux --x64"
 
     defaults:
       run:
