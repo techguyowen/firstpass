@@ -36,7 +36,7 @@ jobs:
             target_os: Linux
             platform: linux
             arch: x64
-            builder_flags: "--linux AppImage deb"
+            builder_flags: "--linux"
 
     defaults:
       run:
@@ -61,6 +61,9 @@ jobs:
       - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          fi
           pip install -r backend/requirements.txt
           pip install pyinstaller
 
@@ -114,6 +117,10 @@ jobs:
             echo "Unix backend verified: app/python-backend/photo-culler-backend"
           fi
           ls -la app/python-backend
+
+      - name: Clean Build Caches to Free Disk Space
+        run: |
+          rm -rf app/python-backend-dist build/pyinstaller-work dist ~/.cache/pip
 
       - name: Setup Node.js 20
         uses: actions/setup-node@v4
