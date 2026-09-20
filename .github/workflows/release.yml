@@ -38,6 +38,10 @@ jobs:
             arch: x64
             builder_flags: "--linux AppImage deb"
 
+    defaults:
+      run:
+        shell: bash
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -66,21 +70,50 @@ jobs:
 
       - name: Build Standalone Python Backend
         run: |
-          pyinstaller build/photo-culler.spec --distpath app/python-backend --noconfirm
+          pyinstaller --distpath app/python-backend-dist --workpath build/pyinstaller-work --clean --noconfirm build/photo-culler.spec
 
-      - name: Verify Python Backend Binary
-        shell: bash
+      - name: Stage & Verify Python Backend Binary
         run: |
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            ls -la app/python-backend/photo-culler-backend/photo-culler-backend.exe
-            cp app/python-backend/photo-culler-backend/photo-culler-backend.exe app/python-backend/
-            cp -R app/python-backend/photo-culler-backend/_internal app/python-backend/
-          else
-            ls -la app/python-backend/photo-culler-backend/photo-culler-backend
-            cp app/python-backend/photo-culler-backend/photo-culler-backend app/python-backend/
-            cp -R app/python-backend/photo-culler-backend/_internal app/python-backend/
-            chmod +x app/python-backend/photo-culler-backend
+          echo "=== Locating built backend ==="
+          BACKEND_SRC=""
+          for candidate in \
+            "app/python-backend-dist/photo-culler-backend" \
+            "dist/photo-culler-backend" \
+            "app/python-backend/photo-culler-backend"; do
+            if [ -d "$candidate" ]; then
+              BACKEND_SRC="$candidate"
+              break
+            fi
+          done
+
+          if [ -z "$BACKEND_SRC" ]; then
+            echo "ERROR: Could not locate built backend directory!"
+            echo "Directory tree:"
+            find . -maxdepth 3 -ls
+            exit 1
           fi
+
+          echo "Found backend files at: $BACKEND_SRC"
+          mkdir -p app/python-backend
+          cp -R "$BACKEND_SRC"/* app/python-backend/
+
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            if [ ! -f "app/python-backend/photo-culler-backend.exe" ]; then
+              echo "ERROR: photo-culler-backend.exe not found in app/python-backend!"
+              ls -la app/python-backend
+              exit 1
+            fi
+            echo "Windows backend verified: app/python-backend/photo-culler-backend.exe"
+          else
+            if [ ! -f "app/python-backend/photo-culler-backend" ]; then
+              echo "ERROR: photo-culler-backend not found in app/python-backend!"
+              ls -la app/python-backend
+              exit 1
+            fi
+            chmod +x app/python-backend/photo-culler-backend
+            echo "Unix backend verified: app/python-backend/photo-culler-backend"
+          fi
+          ls -la app/python-backend
 
       - name: Setup Node.js 20
         uses: actions/setup-node@v4
