@@ -3,6 +3,12 @@
   "productName": "FirstPass",
   "version": "1.0.0",
   "description": "Your shoot's first pass, done in minutes.",
+  "license": "MIT",
+  "author": "FirstPass",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/techguyowen/firstpass.git"
+  },
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",

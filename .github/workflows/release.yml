@@ -52,7 +52,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgl1-mesa-glx libglib2.0-0 libraw-dev libfuse2
+          sudo apt-get install -y libgl1 libglib2.0-0 libraw-dev libfuse2
 
       - name: Install Python Dependencies
         run: |
@@ -102,8 +102,9 @@ jobs:
       - name: Package with Electron Builder
         run: |
           cd app
-          npx electron-builder ${{ matrix.builder_flags }}
+          npx electron-builder ${{ matrix.builder_flags }} --publish never
         env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Release Artifacts
@@ -115,6 +116,8 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: true
+          make_latest: true
+          fail_on_unmatched_files: false
           files: |
             app/dist/*.dmg
             app/dist/*.exe
