@@ -1,0 +1,187 @@
+import axios from 'axios'
+import type {
+  HealthResponse, ScanResponse, JobStatus, PhotosResponse, Photo,
+  DuplicateGroup, ExportRequest, ExportResult, Settings,
+  UpdateCheckResponse, UpdateProgressResponse, FaceCrop,
+  FoldersResponse, FolderInfo, TargetQuotaRequest, TargetQuotaResult,
+  CameraAlignmentResponse
+} from '../types/photo'
+
+const BASE_URL = 'http://localhost:58765'
+
+const axiosInstance = axios.create({
+  baseURL: BASE_URL,
+  timeout: 15000,
+})
+
+export const api = {
+  async getHealth(): Promise<HealthResponse> {
+    const { data } = await axiosInstance.get('/api/health')
+    return data
+  },
+
+  async scanFolder(folder_path: string): Promise<ScanResponse> {
+    const { data } = await axiosInstance.post('/api/scan', { folder_path })
+    return data
+  },
+
+  async startAnalysis(photo_ids?: number[]): Promise<{ job_id: string }> {
+    const { data } = await axiosInstance.post('/api/analyze', photo_ids ? { photo_ids } : {})
+    return data
+  },
+
+  async startReanalysis(photo_ids?: number[]): Promise<{ job_id: string }> {
+    const { data } = await axiosInstance.post('/api/reanalyze', photo_ids ? { photo_ids } : {})
+    return data
+  },
+
+  async getJobStatus(jobId: string): Promise<JobStatus> {
+    const { data } = await axiosInstance.get(`/api/jobs/${jobId}`)
+    return data
+  },
+
+  async getPhotos(params: Record<string, any> = {}): Promise<PhotosResponse> {
+    const { data } = await axiosInstance.get('/api/photos', { params })
+    return data
+  },
+
+  async getPhoto(id: number): Promise<Photo> {
+    const { data } = await axiosInstance.get(`/api/photos/${id}`)
+    return data
+  },
+
+  async updatePhotoStatus(id: number, status: Photo['status']): Promise<Photo> {
+    const { data } = await axiosInstance.put(`/api/photos/${id}/status`, { status })
+    return data
+  },
+
+  getThumbnailUrl(id: number): string {
+    return `${BASE_URL}/api/photos/${id}/thumbnail`
+  },
+
+  getFullImageUrl(id: number): string {
+    return `${BASE_URL}/api/photos/${id}/full`
+  },
+
+  async getPhotoFaces(id: number): Promise<{ faces: FaceCrop[]; total: number }> {
+    const { data } = await axiosInstance.get(`/api/photos/${id}/faces`)
+    return data
+  },
+
+  getFaceCropUrl(photoId: number, faceIndex: number): string {
+    return `${BASE_URL}/api/photos/${photoId}/face/${faceIndex}`
+  },
+
+  async getDuplicateGroups(): Promise<DuplicateGroup[]> {
+    const { data } = await axiosInstance.get('/api/duplicates')
+    return data
+  },
+
+  async exportPhotos(req: ExportRequest): Promise<ExportResult> {
+    const { data } = await axiosInstance.post('/api/export', req)
+    return data
+  },
+
+  async getSettings(): Promise<Settings> {
+    const { data } = await axiosInstance.get('/api/settings')
+    return data
+  },
+
+  async updateSettings(settings: Partial<Settings>): Promise<Settings> {
+    const { data } = await axiosInstance.put('/api/settings', settings)
+    return data
+  },
+
+  async resetLibrary(): Promise<void> {
+    await axiosInstance.delete('/api/reset')
+  },
+
+  async resetLearning(): Promise<void> {
+    await axiosInstance.post('/api/settings/reset-learning')
+  },
+
+  async getStats(): Promise<{ total: number; analyzed: number; accepted: number; rejected: number; pending: number; blurry: number; duplicates: number }> {
+    const { data } = await axiosInstance.get('/api/stats')
+    return data
+  },
+
+  async getFolders(): Promise<FoldersResponse> {
+    const { data } = await axiosInstance.get('/api/folders')
+    return data
+  },
+
+  async removeFolder(folder: string): Promise<{ success: boolean; deleted: number; folder: string }> {
+    const { data } = await axiosInstance.delete('/api/folders', { params: { folder } })
+    return data
+  },
+
+  // ── GitHub In-App Updater ──────────────────────────────────────────────
+  async checkForUpdates(): Promise<UpdateCheckResponse> {
+    const { data } = await axiosInstance.get('/api/updater/check')
+    return data
+  },
+
+  async downloadUpdate(download_url: string, asset_name?: string): Promise<{ message: string }> {
+    const { data } = await axiosInstance.post('/api/updater/download', { download_url, asset_name })
+    return data
+  },
+
+  async getUpdateProgress(): Promise<UpdateProgressResponse> {
+    const { data } = await axiosInstance.get('/api/updater/progress')
+    return data
+  },
+
+  async installUpdate(): Promise<{ success: boolean; message: string }> {
+    const { data } = await axiosInstance.post('/api/updater/install')
+    return data
+  },
+
+  // ── Delivery Constraints & Multi-Camera Alignment ────────────────────────
+  async applyTargetQuota(req: TargetQuotaRequest): Promise<TargetQuotaResult> {
+    const { data } = await axiosInstance.post('/api/cull/target-quota', req)
+    return data
+  },
+
+  async alignCameras(folder?: string): Promise<CameraAlignmentResponse> {
+    const { data } = await axiosInstance.post('/api/cull/align-cameras', null, {
+      params: folder ? { folder } : {}
+    })
+    return data
+  },
+
+  async reanalyzePhoto(id: number): Promise<any> {
+    const { data } = await axiosInstance.post(`/api/photos/${id}/reanalyze`)
+    return data
+  },
+
+  async autoPickDuplicates(): Promise<{ success: boolean; groups_processed: number; accepted: number; rejected: number }> {
+    const { data } = await axiosInstance.post('/api/duplicates/auto-pick')
+    return data
+  },
+
+  async getVipFaces(): Promise<{ vip_faces: any[] }> {
+    const { data } = await axiosInstance.get('/api/vip-faces')
+    return data
+  },
+
+  async addVipFace(photo_id: number, face_index: number, label?: string): Promise<any> {
+    const { data } = await axiosInstance.post('/api/vip-faces', { photo_id, face_index, label: label || 'VIP' })
+    return data
+  },
+
+  async removeVipFace(vip_id: number): Promise<void> {
+    await axiosInstance.delete(`/api/vip-faces/${vip_id}`)
+  },
+
+  async removeVipFaceByPhoto(photo_id: number, face_index: number): Promise<void> {
+    await axiosInstance.delete(`/api/vip-faces/by-photo/${photo_id}/${face_index}`)
+  },
+
+  async toggleTag(photoId: number, is_tagged?: boolean): Promise<Photo> {
+    const { data } = await axiosInstance.put(`/api/photos/${photoId}/tag`, is_tagged !== undefined ? { is_tagged } : {})
+    return data
+  },
+}
+
+// Also export under legacy name for backward compatibility
+export const apiClient = api

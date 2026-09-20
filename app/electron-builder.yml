@@ -1,0 +1,36 @@
+appId: com.firstpass.app
+productName: FirstPass
+copyright: FirstPass
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**/*
+extraResources:
+  - from: python-backend
+    to: python-backend
+mac:
+  category: public.app-category.photography
+  icon: build/icon.icns
+  target:
+    - target: dmg
+dmg:
+  title: FirstPass
+win:
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch: [x64]
+nsis:
+  oneClick: true
+  perMachine: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: FirstPass
+linux:
+  category: Graphics
+  icon: build/icon.png
+  target:
+    - target: AppImage
+    - target: deb
+

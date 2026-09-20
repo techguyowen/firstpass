@@ -1,0 +1,96 @@
+# =============================================================================
+# FirstPass — Git Ignore Configuration
+# =============================================================================
+
+# --- Operating System Artifacts ---
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+[Dd]esktop.ini
+
+# --- Python Virtual Environments & Packages ---
+.venv/
+.venv*/
+venv/
+ENV/
+env/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# --- Python Bytecode & Cache ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- AI Models & Binary Weights ---
+backend/models_data/
+*.pth
+*.pt
+*.onnx
+*.weights
+*.caffemodel
+*.dat
+
+# --- Local Databases & User Data ---
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+.photo-culler/
+.firstpass/
+
+# --- Node & Frontend Build Outputs ---
+node_modules/
+app/node_modules/
+app/out/
+app/dist/
+dist/
+*.tsbuildinfo
+app/*.tsbuildinfo
+.npm
+.eslintcache
+
+# --- PyInstaller & Application Packaging ---
+build/photo-culler/
+build/pyinstaller-work/
+app/python-backend/
+app/python-backend-dist/
+*.spec.bak
+
+# --- Logs & Test Diagnostics ---
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+coverage/
+.nyc_output/
+*.lcov
+
+# --- Secrets & Environment Credentials ---
+.env
+.env.*
+*.env
+*.pem
+*.key
+*.cert
+*.p12
+*.pfx
+
+# --- Temporary / Scratch Verification ---
+tmp/
+temp/
+*.tmp
+scripts/test_*.py
+scripts/verify_*.py
+scripts/simulate_*.py

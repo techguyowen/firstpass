@@ -1,0 +1,17 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+pillow
+opencv-python-headless>=4.8.0,<5.0.0
+numpy
+scipy
+imagehash
+pyiqa
+torch
+torchvision
+rawpy
+aiofiles
+python-multipart
+pydantic-settings
+send2trash
+tqdm
