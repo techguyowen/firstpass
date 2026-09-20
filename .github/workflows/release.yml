@@ -56,7 +56,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgl1 libglib2.0-0 libraw-dev libfuse2
+          sudo apt-get install -y libgl1 libglib2.0-0 libraw-dev libfuse2 fakeroot dpkg
 
       - name: Install Python Dependencies
         run: |
@@ -144,6 +144,7 @@ jobs:
           cd app
           npx electron-builder ${{ matrix.builder_flags }} --publish never
         env:
+          DEBUG: electron-builder*
           CSC_IDENTITY_AUTO_DISCOVERY: false
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

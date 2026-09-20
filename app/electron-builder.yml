@@ -28,8 +28,8 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: FirstPass
 linux:
+  executableName: firstpass
   category: Graphics
-  icon: build/icon.png
   target:
     - target: AppImage
     - target: deb
