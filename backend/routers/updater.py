@@ -21,8 +21,9 @@ from backend.models.photo import Settings as SettingsModel
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+_firstpass_dir = Path.home() / ".firstpass"
 _legacy_dir = Path.home() / ".photo-culler"
-_default_dir = _legacy_dir if _legacy_dir.exists() else Path.home() / ".firstpass"
+_default_dir = _firstpass_dir if _firstpass_dir.exists() else (_legacy_dir if _legacy_dir.exists() else _firstpass_dir)
 UPDATES_DIR = Path(os.environ.get("FIRSTPASS_DATA_DIR", os.environ.get("PHOTO_CULLER_DATA_DIR", str(_default_dir)))) / "updates"
 
 # In-memory download state
@@ -57,7 +58,7 @@ def _is_newer(latest: str, current: str) -> bool:
 @router.get("/updater/check")
 def check_for_updates(db: Session = Depends(get_db)):
     settings = db.query(SettingsModel).first()
-    repo = settings.github_repo if settings and settings.github_repo else "firstpass/firstpass"
+    repo = settings.github_repo if settings and settings.github_repo else "techguyowen/firstpass"
     
     url = f"https://api.github.com/repos/{repo}/releases/latest"
     req = urllib.request.Request(url, headers={

@@ -112,7 +112,7 @@ export const THEME_PRESETS: ThemePreset[] = [
 
 export function getStoredThemeId(): string {
   try {
-    const saved = localStorage.getItem('photo_culler_theme')
+    const saved = localStorage.getItem('firstpass_theme') || localStorage.getItem('photo_culler_theme')
     if (saved && THEME_PRESETS.some((t) => t.id === saved)) {
       return saved
     }
@@ -138,6 +138,7 @@ export function applyTheme(themeId: string) {
   root.setAttribute('data-theme', theme.id)
 
   try {
+    localStorage.setItem('firstpass_theme', theme.id)
     localStorage.setItem('photo_culler_theme', theme.id)
   } catch {}
 }
@@ -153,7 +154,7 @@ export const CANVAS_BACKDROP_OPTIONS: { id: CanvasBackdropMode; label: string; c
 
 export function getStoredCanvasBackdrop(): CanvasBackdropMode {
   try {
-    const saved = localStorage.getItem('photo_culler_canvas_backdrop') as CanvasBackdropMode
+    const saved = (localStorage.getItem('firstpass_canvas_backdrop') || localStorage.getItem('photo_culler_canvas_backdrop')) as CanvasBackdropMode
     if (saved && ['black', 'dark', 'neutral', 'theme'].includes(saved)) {
       return saved
     }
@@ -163,6 +164,7 @@ export function getStoredCanvasBackdrop(): CanvasBackdropMode {
 
 export function setStoredCanvasBackdrop(mode: CanvasBackdropMode) {
   try {
+    localStorage.setItem('firstpass_canvas_backdrop', mode)
     localStorage.setItem('photo_culler_canvas_backdrop', mode)
   } catch {}
 }

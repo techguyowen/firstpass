@@ -57,6 +57,21 @@ export interface BottomGroup {
   widthRatio: number
 }
 
+function getReviewStorage(key: string): string | null {
+  try {
+    return localStorage.getItem(`firstpass_${key}`) ?? localStorage.getItem(`photo_culler_${key}`)
+  } catch {
+    return null
+  }
+}
+
+function setReviewStorage(key: string, value: string): void {
+  try {
+    localStorage.setItem(`firstpass_${key}`, value)
+    localStorage.setItem(`photo_culler_${key}`, value)
+  } catch {}
+}
+
 export default function Review() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -93,7 +108,7 @@ export default function Review() {
   type HistogramMode = 'sidebar' | 'bottom' | 'floating' | 'hidden'
   const [histogramMode, setHistogramMode] = useState<HistogramMode>(() => {
     try {
-      const saved = localStorage.getItem('photo_culler_histogram_mode') as HistogramMode
+      const saved = getReviewStorage('histogram_mode') as HistogramMode
       if (saved && ['sidebar', 'bottom', 'floating', 'hidden'].includes(saved)) return saved
     } catch {}
     return 'sidebar'
@@ -102,7 +117,7 @@ export default function Review() {
   // Full inspector module placements (supports moving ANY inspector item to floating, bottom, or sidebar)
   const [modulePlacements, setModulePlacements] = useState<Record<string, PanelDockPlacement>>(() => {
     try {
-      const saved = localStorage.getItem('photo_culler_module_placements')
+      const saved = getReviewStorage('module_placements')
       if (saved) {
         const parsed = JSON.parse(saved)
         return { ...DEFAULT_MODULE_PLACEMENTS, ...parsed }
@@ -115,13 +130,11 @@ export default function Review() {
 
   const setHistogramModeAndStore = useCallback((mode: HistogramMode) => {
     setHistogramMode(mode)
-    try {
-      localStorage.setItem('photo_culler_histogram_mode', mode)
-    } catch {}
+    setReviewStorage('histogram_mode', mode)
     setModulePlacements(prev => {
       if (prev.histogram === mode) return prev
       const updated = { ...prev, histogram: mode as PanelDockPlacement }
-      try { localStorage.setItem('photo_culler_module_placements', JSON.stringify(updated)) } catch {}
+      setReviewStorage('module_placements', JSON.stringify(updated))
       return updated
     })
   }, [])
@@ -133,10 +146,10 @@ export default function Review() {
       else if (prev === 'floating') next = 'bottom'
       else if (prev === 'bottom') next = 'hidden'
       else next = 'sidebar'
-      try { localStorage.setItem('photo_culler_histogram_mode', next) } catch {}
+      setReviewStorage('histogram_mode', next)
       setModulePlacements(p => {
         const u = { ...p, histogram: next }
-        try { localStorage.setItem('photo_culler_module_placements', JSON.stringify(u)) } catch {}
+        setReviewStorage('module_placements', JSON.stringify(u))
         return u
       })
       toast(
@@ -155,7 +168,7 @@ export default function Review() {
   const [lightsOutLevel, setLightsOutLevel] = useState<0 | 1 | 2>(0)
   const [hudMode, setHudMode] = useState<HudMode>(() => {
     try {
-      const saved = localStorage.getItem('photo_culler_hud_mode')
+      const saved = getReviewStorage('hud_mode')
       if (saved) return parseInt(saved, 10) as HudMode
     } catch {}
     return 1
@@ -176,7 +189,7 @@ export default function Review() {
   const cycleHud = useCallback(() => {
     setHudMode(prev => {
       const next = ((prev + 1) % 3) as HudMode
-      try { localStorage.setItem('photo_culler_hud_mode', String(next)) } catch {}
+      setReviewStorage('hud_mode', String(next))
       return next
     })
   }, [])
@@ -190,7 +203,7 @@ export default function Review() {
   // Flexible Sidebar Docking (Right | Left | Floating | Collapsed)
   const [scorePanelDock, setScorePanelDockState] = useState<DockMode>(() => {
     try {
-      const saved = localStorage.getItem('photo_culler_score_dock') as DockMode
+      const saved = getReviewStorage('score_dock') as DockMode
       if (saved && ['right', 'left', 'floating', 'collapsed'].includes(saved)) return saved
     } catch {}
     return 'right'
@@ -203,15 +216,13 @@ export default function Review() {
       lastActiveDockRef.current = mode
     }
     setScorePanelDockState(mode)
-    try {
-      localStorage.setItem('photo_culler_score_dock', mode)
-    } catch {}
+    setReviewStorage('score_dock', mode)
   }, [])
 
   // Moveable & Adaptive Culling / Triage Action Bar
   const [triagePlacement, setTriagePlacement] = useState<TriagePlacement>(() => {
     try {
-      const saved = localStorage.getItem('photo_culler_triage_placement') as TriagePlacement
+      const saved = getReviewStorage('triage_placement') as TriagePlacement
       if (saved && ['bottom', 'side-left', 'side-right', 'floating', 'sidebar'].includes(saved)) return saved
     } catch {}
     return 'bottom'
@@ -219,7 +230,7 @@ export default function Review() {
 
   const [triageScale, setTriageScale] = useState<TriageScale>(() => {
     try {
-      const saved = localStorage.getItem('photo_culler_triage_scale') as TriageScale
+      const saved = getReviewStorage('triage_scale') as TriageScale
       if (saved && ['compact', 'standard', 'large'].includes(saved)) return saved
     } catch {}
     return 'standard'
@@ -228,16 +239,14 @@ export default function Review() {
   const toggleScorePanel = useCallback(() => {
     setScorePanelDockState(prev => {
       const next = prev === 'collapsed' ? (lastActiveDockRef.current || 'right') : 'collapsed'
-      try {
-        localStorage.setItem('photo_culler_score_dock', next)
-      } catch {}
+      setReviewStorage('score_dock', next)
       return next
     })
   }, [])
 
   const [scorePanelWidth, setScorePanelWidth] = useState<number>(() => {
     try {
-      const saved = localStorage.getItem('photo_culler_score_width')
+      const saved = getReviewStorage('score_width')
       if (saved) {
         const parsed = parseInt(saved, 10)
         if (parsed >= 240 && parsed <= 550) return parsed
@@ -249,9 +258,9 @@ export default function Review() {
   type FaceLoupeMode = 'sidebar' | 'bottom' | 'floating' | 'hidden'
   const [faceLoupeMode, setFaceLoupeMode] = useState<FaceLoupeMode>(() => {
     try {
-      const saved = localStorage.getItem('photo_culler_faceloupe_mode')
+      const saved = getReviewStorage('faceloupe_mode')
       if (saved) return saved as FaceLoupeMode
-      const oldFloat = localStorage.getItem('photo_culler_faceloupe_floating')
+      const oldFloat = getReviewStorage('faceloupe_floating')
       if (oldFloat === 'true') return 'floating'
       if (oldFloat === 'false') return 'bottom'
     } catch {}
@@ -260,13 +269,11 @@ export default function Review() {
 
   const setFaceLoupeModeAndStore = useCallback((mode: FaceLoupeMode) => {
     setFaceLoupeMode(mode)
-    try {
-      localStorage.setItem('photo_culler_faceloupe_mode', mode)
-    } catch {}
+    setReviewStorage('faceloupe_mode', mode)
     setModulePlacements(prev => {
       if (prev.people === mode) return prev
       const updated = { ...prev, people: mode as PanelDockPlacement }
-      try { localStorage.setItem('photo_culler_module_placements', JSON.stringify(updated)) } catch {}
+      setReviewStorage('module_placements', JSON.stringify(updated))
       return updated
     })
   }, [])
@@ -274,24 +281,20 @@ export default function Review() {
   const setModulePlacement = useCallback((id: string, placement: PanelDockPlacement, floatPos?: { x: number; y: number }) => {
     setModulePlacements(prev => {
       const updated = { ...prev, [id]: placement }
-      try {
-        localStorage.setItem('photo_culler_module_placements', JSON.stringify(updated))
-      } catch {}
+      setReviewStorage('module_placements', JSON.stringify(updated))
       return updated
     })
 
     if (id === 'histogram') {
       setHistogramMode(placement as HistogramMode)
-      try { localStorage.setItem('photo_culler_histogram_mode', placement) } catch {}
+      setReviewStorage('histogram_mode', placement)
     } else if (id === 'people') {
       setFaceLoupeMode(placement as FaceLoupeMode)
-      try { localStorage.setItem('photo_culler_faceloupe_mode', placement) } catch {}
+      setReviewStorage('faceloupe_mode', placement)
     }
 
     if (floatPos) {
-      try {
-        localStorage.setItem(`photo_culler_panel_pos_${id}`, JSON.stringify(floatPos))
-      } catch {}
+      setReviewStorage(`panel_pos_${id}`, JSON.stringify(floatPos))
     }
 
     if (placement === 'bottom') {
@@ -305,7 +308,7 @@ export default function Review() {
         } else {
           next = [{ id: `bottom-group-${Date.now()}`, tabs: [id], activeTab: id, widthRatio: 1 }]
         }
-        try { localStorage.setItem('photo_culler_bottom_groups', JSON.stringify(next)) } catch {}
+        setReviewStorage('bottom_groups', JSON.stringify(next))
         return next
       })
     } else {
@@ -318,7 +321,7 @@ export default function Review() {
             activeTab: g.activeTab === id ? remTabs[0] || '' : g.activeTab
           }
         }).filter(g => g.tabs.length > 0)
-        try { localStorage.setItem('photo_culler_bottom_groups', JSON.stringify(next)) } catch {}
+        setReviewStorage('bottom_groups', JSON.stringify(next))
         return next
       })
     }
@@ -336,7 +339,7 @@ export default function Review() {
   // Bottom Stage Bar Horizontal Split Groups (Studio Multi-Column)
   const [bottomGroups, setBottomGroups] = useState<BottomGroup[]>(() => {
     try {
-      const saved = localStorage.getItem('photo_culler_bottom_groups')
+      const saved = getReviewStorage('bottom_groups')
       if (saved) {
         const parsed = JSON.parse(saved)
         if (Array.isArray(parsed) && parsed.length > 0) return parsed
@@ -352,9 +355,7 @@ export default function Review() {
 
   const saveBottomGroups = useCallback((groups: BottomGroup[]) => {
     setBottomGroups(groups)
-    try {
-      localStorage.setItem('photo_culler_bottom_groups', JSON.stringify(groups))
-    } catch {}
+    setReviewStorage('bottom_groups', JSON.stringify(groups))
   }, [])
 
   const allBottomTabs = Array.from(new Set(bottomGroups.flatMap(g => g.tabs)))
@@ -379,7 +380,7 @@ export default function Review() {
   // Bottom Stage Bar states
   const [bottomBarHeight, setBottomBarHeight] = useState<number>(() => {
     try {
-      const saved = localStorage.getItem('photo_culler_bottom_height')
+      const saved = getReviewStorage('bottom_height')
       if (saved) {
         const parsed = parseInt(saved, 10)
         if (parsed >= 90 && parsed <= 450) return parsed
@@ -414,7 +415,7 @@ export default function Review() {
   const handleSelectBottomTab = useCallback((groupId: string, tabId: string) => {
     setBottomGroups(prev => {
       const next = prev.map(g => g.id === groupId ? { ...g, activeTab: tabId } : g)
-      try { localStorage.setItem('photo_culler_bottom_groups', JSON.stringify(next)) } catch {}
+      setReviewStorage('bottom_groups', JSON.stringify(next))
       return next
     })
     setIsBottomCollapsed(false)
@@ -436,7 +437,7 @@ export default function Review() {
 
       const insertIdx = side === 'left' ? Math.max(0, groupIndex) : Math.min(pruned.length, groupIndex + 1)
       pruned.splice(insertIdx, 0, newGroup)
-      try { localStorage.setItem('photo_culler_bottom_groups', JSON.stringify(pruned)) } catch {}
+      setReviewStorage('bottom_groups', JSON.stringify(pruned))
       return pruned
     })
     toast.success(`Split ${MODULE_TITLES[tabId] || tabId} into side-by-side pane`)
@@ -452,7 +453,7 @@ export default function Review() {
         activeTab: allTabs[0] || 'people',
         widthRatio: 1,
       }]
-      try { localStorage.setItem('photo_culler_bottom_groups', JSON.stringify(merged)) } catch {}
+      setReviewStorage('bottom_groups', JSON.stringify(merged))
       return merged
     })
     toast.success('Merged all bottom panels into a single tab group')
@@ -490,7 +491,7 @@ export default function Review() {
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
       setBottomGroups(current => {
-        try { localStorage.setItem('photo_culler_bottom_groups', JSON.stringify(current)) } catch {}
+        setReviewStorage('bottom_groups', JSON.stringify(current))
         return current
       })
     }
@@ -516,7 +517,7 @@ export default function Review() {
             }
             return g
           }).filter(g => g.tabs.length > 0)
-          try { localStorage.setItem('photo_culler_bottom_groups', JSON.stringify(pruned)) } catch {}
+          setReviewStorage('bottom_groups', JSON.stringify(pruned))
           return pruned
         })
         toast.success(`Moved ${MODULE_TITLES[tabId] || tabId} into group`)
@@ -610,14 +611,14 @@ export default function Review() {
     setHudMode(workspace.hudMode)
     try {
       if (workspace.hudPosition) {
-        localStorage.setItem('photo_culler_hud_pos', JSON.stringify(workspace.hudPosition))
+        setReviewStorage('hud_pos', JSON.stringify(workspace.hudPosition))
       }
       if (workspace.modulesOrder && workspace.modulesOrder.length > 0) {
-        localStorage.setItem('photo_culler_inspector_order', JSON.stringify(workspace.modulesOrder))
+        setReviewStorage('inspector_order', JSON.stringify(workspace.modulesOrder))
       }
       if (workspace.modulePlacements) {
         setModulePlacements(workspace.modulePlacements)
-        localStorage.setItem('photo_culler_module_placements', JSON.stringify(workspace.modulePlacements))
+        setReviewStorage('module_placements', JSON.stringify(workspace.modulePlacements))
       }
     } catch {}
     setCanvasBackdrop(workspace.canvasBackdrop)
@@ -634,13 +635,13 @@ export default function Review() {
 
     let hudPosition = { x: 20, y: 20 }
     try {
-      const savedPos = localStorage.getItem('photo_culler_hud_pos')
+      const savedPos = getReviewStorage('hud_pos')
       if (savedPos) hudPosition = JSON.parse(savedPos)
     } catch {}
 
     let modulesOrder = ['histogram', 'overall', 'reasons', 'quality', 'people', 'context', 'camera', 'file']
     try {
-      const savedOrder = localStorage.getItem('photo_culler_inspector_order')
+      const savedOrder = getReviewStorage('inspector_order')
       if (savedOrder) modulesOrder = JSON.parse(savedOrder)
     } catch {}
 
@@ -702,7 +703,7 @@ export default function Review() {
       window.removeEventListener('mousemove', onMouseMove)
       window.removeEventListener('mouseup', onMouseUp)
       setScorePanelWidth(w => {
-        try { localStorage.setItem('photo_culler_score_width', String(w)) } catch {}
+        setReviewStorage('score_width', String(w))
         return w
       })
     }
@@ -736,7 +737,7 @@ export default function Review() {
       window.removeEventListener('mousemove', onMouseMove)
       window.removeEventListener('mouseup', onMouseUp)
       setScorePanelWidth(w => {
-        try { localStorage.setItem('photo_culler_score_width', String(w)) } catch {}
+        setReviewStorage('score_width', String(w))
         return w
       })
     }
@@ -765,7 +766,7 @@ export default function Review() {
       window.removeEventListener('mousemove', onMouseMove)
       window.removeEventListener('mouseup', onMouseUp)
       setBottomBarHeight(h => {
-        try { localStorage.setItem('photo_culler_bottom_height', String(h)) } catch {}
+        setReviewStorage('bottom_height', String(h))
         return h
       })
     }
@@ -1068,7 +1069,7 @@ export default function Review() {
         case 'set-hud':
           if (typeof payload === 'number') {
             setHudMode(payload as HudMode)
-            try { localStorage.setItem('photo_culler_hud_mode', String(payload)) } catch {}
+            setReviewStorage('hud_mode', String(payload))
           }
           break
         case 'cycle-hud':
@@ -1863,7 +1864,7 @@ export default function Review() {
               <DraggablePanel
                 title={title}
                 icon={icon}
-                storageKey={`photo_culler_panel_pos_${id}`}
+                storageKey={`firstpass_panel_pos_${id}`}
                 defaultPosition={{ x: 80 + (index % 4) * 30, y: 100 + (index % 4) * 35 }}
                 width={320}
                 isOpen={true}
@@ -2627,7 +2628,7 @@ export default function Review() {
           <DraggablePanel
             title="Inspector & AI Scores"
             icon={<Sliders size={13} className="text-blue-400" />}
-            storageKey="photo_culler_score_panel_pos"
+            storageKey="firstpass_score_panel_pos"
             defaultPosition={{ x: Math.max(10, window.innerWidth - 380), y: 70 }}
             width={scorePanelWidth}
             isOpen={true}

@@ -212,6 +212,28 @@ export function SplitLineDropZone({
   )
 }
 
+function getScoreStorage(key: string): string | null {
+  try {
+    return localStorage.getItem(`firstpass_${key}`) ?? localStorage.getItem(`photo_culler_${key}`)
+  } catch {
+    return null
+  }
+}
+
+function setScoreStorage(key: string, value: string): void {
+  try {
+    localStorage.setItem(`firstpass_${key}`, value)
+    localStorage.setItem(`photo_culler_${key}`, value)
+  } catch {}
+}
+
+function removeScoreStorage(key: string): void {
+  try {
+    localStorage.removeItem(`firstpass_${key}`)
+    localStorage.removeItem(`photo_culler_${key}`)
+  } catch {}
+}
+
 export default function ScorePanel({
   photo,
   dockMode = 'right',
@@ -259,7 +281,7 @@ export default function ScorePanel({
   // Module order state
   const [modulesOrder, setModulesOrder] = useState<string[]>(() => {
     try {
-      const saved = localStorage.getItem('photo_culler_inspector_order')
+      const saved = getScoreStorage('inspector_order')
       if (saved) {
         const parsed = JSON.parse(saved)
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -278,7 +300,7 @@ export default function ScorePanel({
   // Collapsed modules state
   const [collapsedModules, setCollapsedModules] = useState<Record<string, boolean>>(() => {
     try {
-      const saved = localStorage.getItem('photo_culler_inspector_collapsed')
+      const saved = getScoreStorage('inspector_collapsed')
       if (saved) return JSON.parse(saved)
     } catch {}
     return {}
@@ -287,7 +309,7 @@ export default function ScorePanel({
   // Visibility state
   const [visibleModules, setVisibleModules] = useState<Record<string, boolean>>(() => {
     try {
-      const saved = localStorage.getItem('photo_culler_inspector_visible')
+      const saved = getScoreStorage('inspector_visible')
       if (saved) return JSON.parse(saved)
     } catch {}
     return DEFAULT_MODULE_ORDER.reduce((acc, id) => ({ ...acc, [id]: true }), {})
@@ -302,7 +324,7 @@ export default function ScorePanel({
   // Panel layout mode: 'tabbed' (Studio tab groups) vs 'accordion' (classic stacked cards)
   const [panelLayout, setPanelLayout] = useState<'tabbed' | 'accordion'>(() => {
     try {
-      const saved = localStorage.getItem('photo_culler_panel_layout')
+      const saved = getScoreStorage('panel_layout')
       if (saved === 'accordion' || saved === 'tabbed') return saved
     } catch {}
     return 'tabbed'
@@ -311,7 +333,7 @@ export default function ScorePanel({
   // Studio Dock Groups
   const [dockGroups, setDockGroups] = useState<DockGroup[]>(() => {
     try {
-      const saved = localStorage.getItem('photo_culler_dock_groups')
+      const saved = getScoreStorage('dock_groups')
       if (saved) {
         const parsed = JSON.parse(saved)
         if (Array.isArray(parsed) && parsed.length > 0) return parsed
@@ -322,9 +344,7 @@ export default function ScorePanel({
 
   const saveDockGroups = (groups: DockGroup[]) => {
     setDockGroups(groups)
-    try {
-      localStorage.setItem('photo_culler_dock_groups', JSON.stringify(groups))
-    } catch {}
+    setScoreStorage('dock_groups', JSON.stringify(groups))
   }
 
   // Subscribe to universal 60fps dock drag manager
@@ -544,9 +564,7 @@ export default function ScorePanel({
   const handleToggleCollapse = (id: string) => {
     setCollapsedModules(prev => {
       const next = { ...prev, [id]: !prev[id] }
-      try {
-        localStorage.setItem('photo_culler_inspector_collapsed', JSON.stringify(next))
-      } catch {}
+      setScoreStorage('inspector_collapsed', JSON.stringify(next))
       return next
     })
   }
@@ -554,9 +572,7 @@ export default function ScorePanel({
   const handleToggleVisibility = (id: string) => {
     setVisibleModules(prev => {
       const next = { ...prev, [id]: !prev[id] }
-      try {
-        localStorage.setItem('photo_culler_inspector_visible', JSON.stringify(next))
-      } catch {}
+      setScoreStorage('inspector_visible', JSON.stringify(next))
       return next
     })
   }
@@ -569,7 +585,7 @@ export default function ScorePanel({
       const temp = copy[idx - 1]
       copy[idx - 1] = copy[idx]
       copy[idx] = temp
-      try { localStorage.setItem('photo_culler_inspector_order', JSON.stringify(copy)) } catch {}
+      setScoreStorage('inspector_order', JSON.stringify(copy))
       return copy
     })
   }
@@ -582,7 +598,7 @@ export default function ScorePanel({
       const temp = copy[idx + 1]
       copy[idx + 1] = copy[idx]
       copy[idx] = temp
-      try { localStorage.setItem('photo_culler_inspector_order', JSON.stringify(copy)) } catch {}
+      setScoreStorage('inspector_order', JSON.stringify(copy))
       return copy
     })
   }
@@ -600,7 +616,7 @@ export default function ScorePanel({
       const copy = [...prev]
       const [moved] = copy.splice(fromIdx, 1)
       copy.splice(toIdx, 0, moved)
-      try { localStorage.setItem('photo_culler_inspector_order', JSON.stringify(copy)) } catch {}
+      setScoreStorage('inspector_order', JSON.stringify(copy))
       return copy
     })
     setDraggedId(null)
@@ -613,9 +629,9 @@ export default function ScorePanel({
     const allVis = DEFAULT_MODULE_ORDER.reduce((acc, id) => ({ ...acc, [id]: true }), {})
     setVisibleModules(allVis)
     try {
-      localStorage.removeItem('photo_culler_inspector_order')
-      localStorage.removeItem('photo_culler_inspector_collapsed')
-      localStorage.removeItem('photo_culler_inspector_visible')
+      removeScoreStorage('inspector_order')
+      removeScoreStorage('inspector_collapsed')
+      removeScoreStorage('inspector_visible')
     } catch {}
     toast.success('Inspector boxes reset to default layout')
     setShowCustomizeDrawer(false)
@@ -1176,7 +1192,7 @@ export default function ScorePanel({
                 onClick={() => {
                   const next = panelLayout === 'tabbed' ? 'accordion' : 'tabbed'
                   setPanelLayout(next)
-                  try { localStorage.setItem('photo_culler_panel_layout', next) } catch {}
+                  setScoreStorage('panel_layout', next)
                 }}
                 className={clsx(
                   "px-2 py-0.5 rounded text-[10px] font-semibold border flex items-center gap-1 transition-colors cursor-pointer",

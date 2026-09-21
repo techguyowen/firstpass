@@ -91,12 +91,14 @@ export const PRESET_WORKSPACES: WorkspaceLayout[] = [
   }
 ]
 
-const STORAGE_KEY_WORKSPACES = 'photo_culler_custom_workspaces'
-const STORAGE_KEY_ACTIVE_ID = 'photo_culler_active_workspace_id'
+const STORAGE_KEY_WORKSPACES = 'firstpass_custom_workspaces'
+const LEGACY_STORAGE_KEY_WORKSPACES = 'photo_culler_custom_workspaces'
+const STORAGE_KEY_ACTIVE_ID = 'firstpass_active_workspace_id'
+const LEGACY_STORAGE_KEY_ACTIVE_ID = 'photo_culler_active_workspace_id'
 
 export function getCustomWorkspaces(): WorkspaceLayout[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY_WORKSPACES)
+    const raw = localStorage.getItem(STORAGE_KEY_WORKSPACES) || localStorage.getItem(LEGACY_STORAGE_KEY_WORKSPACES)
     if (raw) {
       const parsed = JSON.parse(raw)
       if (Array.isArray(parsed)) return parsed
@@ -112,7 +114,7 @@ export function getAllWorkspaces(): WorkspaceLayout[] {
 
 export function getActiveWorkspaceId(): string {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY_ACTIVE_ID)
+    const saved = localStorage.getItem(STORAGE_KEY_ACTIVE_ID) || localStorage.getItem(LEGACY_STORAGE_KEY_ACTIVE_ID)
     if (saved && getAllWorkspaces().some(w => w.id === saved)) {
       return saved
     }
@@ -123,6 +125,7 @@ export function getActiveWorkspaceId(): string {
 export function setActiveWorkspaceId(id: string): void {
   try {
     localStorage.setItem(STORAGE_KEY_ACTIVE_ID, id)
+    localStorage.setItem(LEGACY_STORAGE_KEY_ACTIVE_ID, id)
   } catch {}
 }
 
@@ -140,7 +143,9 @@ export function saveCustomWorkspace(name: string, currentLayout: Omit<WorkspaceL
 
   try {
     localStorage.setItem(STORAGE_KEY_WORKSPACES, JSON.stringify(updated))
+    localStorage.setItem(LEGACY_STORAGE_KEY_WORKSPACES, JSON.stringify(updated))
     localStorage.setItem(STORAGE_KEY_ACTIVE_ID, id)
+    localStorage.setItem(LEGACY_STORAGE_KEY_ACTIVE_ID, id)
   } catch {}
 
   return newWorkspace
@@ -150,6 +155,7 @@ export function deleteCustomWorkspace(id: string): void {
   const existing = getCustomWorkspaces().filter(w => w.id !== id)
   try {
     localStorage.setItem(STORAGE_KEY_WORKSPACES, JSON.stringify(existing))
+    localStorage.setItem(LEGACY_STORAGE_KEY_WORKSPACES, JSON.stringify(existing))
     if (getActiveWorkspaceId() === id) {
       setActiveWorkspaceId('default-studio')
     }

@@ -43,7 +43,7 @@ function formatExifDate(dateStr: string | null | undefined): string {
 
 export function getStoredHudPosition(): HudPosition {
   try {
-    const raw = localStorage.getItem('photo_culler_hud_pos')
+    const raw = localStorage.getItem('firstpass_hud_pos') || localStorage.getItem('photo_culler_hud_pos')
     if (raw) {
       const parsed = JSON.parse(raw)
       if (typeof parsed.x === 'number' && typeof parsed.y === 'number') {
@@ -59,6 +59,7 @@ export function getStoredHudPosition(): HudPosition {
 
 export function setStoredHudPosition(pos: HudPosition): void {
   try {
+    localStorage.setItem('firstpass_hud_pos', JSON.stringify(pos))
     localStorage.setItem('photo_culler_hud_pos', JSON.stringify(pos))
   } catch {}
 }

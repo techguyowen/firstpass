@@ -5,6 +5,8 @@ import http from 'http'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { spawn, ChildProcess } from 'child_process'
 
+app.setName('FirstPass')
+
 let backendProcess: ChildProcess | null = null
 let mainWindow: BrowserWindow | null = null
 
@@ -51,8 +53,12 @@ function startBackend(): void {
         stdio: 'inherit'
       })
     } else {
-      const binaryName = process.platform === 'win32' ? 'photo-culler-backend.exe' : 'photo-culler-backend'
-      const binaryPath = join(process.resourcesPath, 'python-backend', binaryName)
+      const primaryBinary = process.platform === 'win32' ? 'firstpass-backend.exe' : 'firstpass-backend'
+      const fallbackBinary = process.platform === 'win32' ? 'photo-culler-backend.exe' : 'photo-culler-backend'
+      let binaryPath = join(process.resourcesPath, 'python-backend', primaryBinary)
+      if (!existsSync(binaryPath)) {
+        binaryPath = join(process.resourcesPath, 'python-backend', fallbackBinary)
+      }
       console.log(`Starting backend in production mode: ${binaryPath}`)
       if (existsSync(binaryPath)) {
         backendProcess = spawn(binaryPath, [], {

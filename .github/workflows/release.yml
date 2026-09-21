@@ -50,7 +50,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
 
       - name: Install System Dependencies (Linux)
         if: runner.os == 'Linux'
@@ -73,13 +72,20 @@ jobs:
 
       - name: Build Standalone Python Backend
         run: |
-          pyinstaller --distpath app/python-backend-dist --workpath build/pyinstaller-work --clean --noconfirm build/photo-culler.spec
+          SPEC_FILE="build/firstpass.spec"
+          if [ ! -f "$SPEC_FILE" ]; then
+            SPEC_FILE="build/photo-culler.spec"
+          fi
+          pyinstaller --distpath app/python-backend-dist --workpath build/pyinstaller-work --clean --noconfirm "$SPEC_FILE"
 
       - name: Stage & Verify Python Backend Binary
         run: |
           echo "=== Locating built backend ==="
           BACKEND_SRC=""
           for candidate in \
+            "app/python-backend-dist/firstpass-backend" \
+            "dist/firstpass-backend" \
+            "app/python-backend/firstpass-backend" \
             "app/python-backend-dist/photo-culler-backend" \
             "dist/photo-culler-backend" \
             "app/python-backend/photo-culler-backend"; do
@@ -101,26 +107,33 @@ jobs:
           cp -R "$BACKEND_SRC"/* app/python-backend/
 
           if [ "${{ runner.os }}" = "Windows" ]; then
-            if [ ! -f "app/python-backend/photo-culler-backend.exe" ]; then
-              echo "ERROR: photo-culler-backend.exe not found in app/python-backend!"
+            if [ -f "app/python-backend/firstpass-backend.exe" ]; then
+              echo "Windows backend verified: app/python-backend/firstpass-backend.exe"
+            elif [ -f "app/python-backend/photo-culler-backend.exe" ]; then
+              echo "Windows backend verified: app/python-backend/photo-culler-backend.exe"
+            else
+              echo "ERROR: Backend executable not found in app/python-backend!"
               ls -la app/python-backend
               exit 1
             fi
-            echo "Windows backend verified: app/python-backend/photo-culler-backend.exe"
           else
-            if [ ! -f "app/python-backend/photo-culler-backend" ]; then
-              echo "ERROR: photo-culler-backend not found in app/python-backend!"
+            if [ -f "app/python-backend/firstpass-backend" ]; then
+              chmod +x app/python-backend/firstpass-backend
+              echo "Unix backend verified: app/python-backend/firstpass-backend"
+            elif [ -f "app/python-backend/photo-culler-backend" ]; then
+              chmod +x app/python-backend/photo-culler-backend
+              echo "Unix backend verified: app/python-backend/photo-culler-backend"
+            else
+              echo "ERROR: Backend executable not found in app/python-backend!"
               ls -la app/python-backend
               exit 1
             fi
-            chmod +x app/python-backend/photo-culler-backend
-            echo "Unix backend verified: app/python-backend/photo-culler-backend"
           fi
           ls -la app/python-backend
 
       - name: Clean Build Caches to Free Disk Space
         run: |
-          rm -rf app/python-backend-dist build/pyinstaller-work dist ~/.cache/pip
+          rm -rf app/python-backend-dist build/pyinstaller-work dist
 
       - name: Setup Node.js 22 (LTS)
         uses: actions/setup-node@v4

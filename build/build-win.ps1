@@ -109,7 +109,10 @@ Write-Host "`nStep 5/7: Building Python backend with PyInstaller..." -Foreground
 
 Set-Location $ProjectRoot
 
-$specFile = Join-Path $BuildDir "photo-culler.spec"
+$specFile = Join-Path $BuildDir "firstpass.spec"
+if (-not (Test-Path $specFile)) {
+    $specFile = Join-Path $BuildDir "photo-culler.spec"
+}
 $distPath = Join-Path $AppDir "python-backend-dist"
 $workPath = Join-Path $BuildDir "pyinstaller-work"
 
@@ -124,7 +127,10 @@ if (Test-Path $PythonDistDir) {
     Remove-Item -Recurse -Force $PythonDistDir
 }
 New-Item -ItemType Directory -Force -Path $PythonDistDir | Out-Null
-$builtBackend = Join-Path $distPath "photo-culler-backend"
+$builtBackend = Join-Path $distPath "firstpass-backend"
+if (-not (Test-Path $builtBackend)) {
+    $builtBackend = Join-Path $distPath "photo-culler-backend"
+}
 Copy-Item -Recurse -Force "$builtBackend\*" $PythonDistDir
 
 Write-Host "  Python backend built: $PythonDistDir" -ForegroundColor Green

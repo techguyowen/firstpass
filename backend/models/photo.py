@@ -76,7 +76,7 @@ class Settings(Base):
     auto_accept_threshold = Column(Float, default=75.0)
     thumbnail_size = Column(Integer, default=300)
     gpu_enabled = Column(Boolean, default=True)
-    github_repo = Column(String, default="firstpass/firstpass")
+    github_repo = Column(String, default="techguyowen/firstpass")
     
     # Feature Toggles
     enable_blink_detection = Column(Boolean, default=True)

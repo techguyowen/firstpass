@@ -38,9 +38,10 @@ function VipFaceCard({
     setRemoving(true)
     try {
       try {
-        const raw = localStorage.getItem('photo_culler_unpinned_vips')
+        const raw = localStorage.getItem('firstpass_unpinned_vips') || localStorage.getItem('photo_culler_unpinned_vips')
         const keys = raw ? new Set(JSON.parse(raw)) : new Set()
         keys.add(`${vip.photo_id}-${vip.face_index}`)
+        localStorage.setItem('firstpass_unpinned_vips', JSON.stringify(Array.from(keys)))
         localStorage.setItem('photo_culler_unpinned_vips', JSON.stringify(Array.from(keys)))
       } catch {}
       await axios.delete(`${API_BASE}/api/vip-faces/${vip.id}`)

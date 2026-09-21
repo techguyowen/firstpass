@@ -2,8 +2,9 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
+_firstpass_dir = os.path.expanduser("~/.firstpass")
 _legacy_dir = os.path.expanduser("~/.photo-culler")
-_default_dir = _legacy_dir if os.path.exists(_legacy_dir) else os.path.expanduser("~/.firstpass")
+_default_dir = _firstpass_dir if os.path.exists(_firstpass_dir) else (_legacy_dir if os.path.exists(_legacy_dir) else _firstpass_dir)
 DATA_DIR = os.getenv("FIRSTPASS_DATA_DIR", os.getenv("PHOTO_CULLER_DATA_DIR", _default_dir))
 os.makedirs(DATA_DIR, exist_ok=True)
 
@@ -38,7 +39,7 @@ def auto_migrate(db_engine):
             if "burst_time_threshold" not in existing_cols:
                 conn.exec_driver_sql("ALTER TABLE settings ADD COLUMN burst_time_threshold FLOAT DEFAULT 2.0")
             if "github_repo" not in existing_cols:
-                conn.exec_driver_sql("ALTER TABLE settings ADD COLUMN github_repo VARCHAR DEFAULT 'firstpass/firstpass'")
+                conn.exec_driver_sql("ALTER TABLE settings ADD COLUMN github_repo VARCHAR DEFAULT 'techguyowen/firstpass'")
             if "scene_gap_threshold" not in existing_cols:
                 conn.exec_driver_sql("ALTER TABLE settings ADD COLUMN scene_gap_threshold FLOAT DEFAULT 900.0")
             if "learned_blur_bias" not in existing_cols:

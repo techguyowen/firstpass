@@ -105,13 +105,13 @@ export default function Settings() {
   const [workspaces, setWorkspaces] = useState<WorkspaceLayout[]>(getAllWorkspaces)
 
   const [defaultHistogramMode, setDefaultHistogramMode] = useState<string>(() => {
-    return localStorage.getItem('photo_culler_histogram_mode') || 'sidebar'
+    return localStorage.getItem('firstpass_histogram_mode') || localStorage.getItem('photo_culler_histogram_mode') || 'sidebar'
   })
   const [defaultFaceLoupeMode, setDefaultFaceLoupeMode] = useState<string>(() => {
-    return localStorage.getItem('photo_culler_faceloupe_mode') || 'bottom'
+    return localStorage.getItem('firstpass_faceloupe_mode') || localStorage.getItem('photo_culler_faceloupe_mode') || 'bottom'
   })
   const [defaultFilmstripPos, setDefaultFilmstripPos] = useState<string>(() => {
-    return localStorage.getItem('photo_culler_filmstrip_position') || 'bottom'
+    return localStorage.getItem('firstpass_filmstrip_position') || localStorage.getItem('photo_culler_filmstrip_position') || 'bottom'
   })
 
   const handleBackdropChange = (mode: CanvasBackdropMode) => {
@@ -130,18 +130,21 @@ export default function Settings() {
 
   const handleHistogramDefaultChange = (mode: string) => {
     setDefaultHistogramMode(mode)
+    localStorage.setItem('firstpass_histogram_mode', mode)
     localStorage.setItem('photo_culler_histogram_mode', mode)
     toast.success(`Histogram default: ${mode}`)
   }
 
   const handleFaceLoupeDefaultChange = (mode: string) => {
     setDefaultFaceLoupeMode(mode)
+    localStorage.setItem('firstpass_faceloupe_mode', mode)
     localStorage.setItem('photo_culler_faceloupe_mode', mode)
     toast.success(`Face Loupe default: ${mode}`)
   }
 
   const handleFilmstripDefaultChange = (pos: string) => {
     setDefaultFilmstripPos(pos)
+    localStorage.setItem('firstpass_filmstrip_position', pos)
     localStorage.setItem('photo_culler_filmstrip_position', pos)
     toast.success(`Filmstrip default: ${pos}`)
   }

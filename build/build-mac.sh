@@ -99,7 +99,12 @@ echo ""
 echo "Step 5/7: Building Python backend with PyInstaller..."
 
 cd "$PROJECT_ROOT"
-pyinstaller "$BUILD_DIR/photo-culler.spec" \
+SPEC_FILE="$BUILD_DIR/firstpass.spec"
+if [ ! -f "$SPEC_FILE" ]; then
+    SPEC_FILE="$BUILD_DIR/photo-culler.spec"
+fi
+
+pyinstaller "$SPEC_FILE" \
     --distpath "$APP_DIR/python-backend-dist" \
     --workpath "$BUILD_DIR/pyinstaller-work" \
     --clean \
@@ -108,7 +113,11 @@ pyinstaller "$BUILD_DIR/photo-culler.spec" \
 # Move the built backend into the app directory where electron-builder expects it
 mkdir -p "$PYTHON_DIST_DIR"
 rm -rf "$PYTHON_DIST_DIR"/*
-cp -r "$APP_DIR/python-backend-dist/photo-culler-backend/"* "$PYTHON_DIST_DIR/"
+if [ -d "$APP_DIR/python-backend-dist/firstpass-backend" ]; then
+    cp -r "$APP_DIR/python-backend-dist/firstpass-backend/"* "$PYTHON_DIST_DIR/"
+else
+    cp -r "$APP_DIR/python-backend-dist/photo-culler-backend/"* "$PYTHON_DIST_DIR/"
+fi
 echo "  Python backend built: $PYTHON_DIST_DIR"
 
 deactivate

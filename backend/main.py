@@ -14,8 +14,9 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 # ── Resolve data directory ─────────────────────────────────────────────────
+_firstpass_dir = Path.home() / ".firstpass"
 _legacy_dir = Path.home() / ".photo-culler"
-_default_dir = _legacy_dir if _legacy_dir.exists() else Path.home() / ".firstpass"
+_default_dir = _firstpass_dir if _firstpass_dir.exists() else (_legacy_dir if _legacy_dir.exists() else _firstpass_dir)
 DATA_DIR = Path(os.environ.get("FIRSTPASS_DATA_DIR", os.environ.get("PHOTO_CULLER_DATA_DIR", str(_default_dir))))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 THUMBNAILS_DIR = DATA_DIR / "thumbnails"
@@ -140,7 +141,7 @@ async def health():
 
 # ── Entry point ────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    PORT = int(os.environ.get("PHOTO_CULLER_PORT", 58765))
+    PORT = int(os.environ.get("FIRSTPASS_PORT", os.environ.get("PHOTO_CULLER_PORT", 58765)))
     logger.info(f"Listening on port {PORT}")
     uvicorn.run(
         "main:app",

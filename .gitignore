@@ -63,6 +63,7 @@ app/*.tsbuildinfo
 
 # --- PyInstaller & Application Packaging ---
 build/photo-culler/
+build/firstpass/
 build/pyinstaller-work/
 app/python-backend/
 app/python-backend-dist/

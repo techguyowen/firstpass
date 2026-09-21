@@ -31,6 +31,35 @@ let topZIndex = 50
 
 type ResizeDirection = 'e' | 'w' | 's' | 'n' | 'se' | 'sw' | 'ne' | 'nw'
 
+function getPanelStorage(key: string): string | null {
+  try {
+    const val = localStorage.getItem(key)
+    if (val !== null) return val
+    if (key.startsWith('firstpass_')) {
+      return localStorage.getItem(key.replace('firstpass_', 'photo_culler_'))
+    }
+  } catch {}
+  return null
+}
+
+function setPanelStorage(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value)
+    if (key.startsWith('firstpass_')) {
+      localStorage.setItem(key.replace('firstpass_', 'photo_culler_'), value)
+    }
+  } catch {}
+}
+
+function removePanelStorage(key: string): void {
+  try {
+    localStorage.removeItem(key)
+    if (key.startsWith('firstpass_')) {
+      localStorage.removeItem(key.replace('firstpass_', 'photo_culler_'))
+    }
+  } catch {}
+}
+
 export default function DraggablePanel({
   title,
   icon,
@@ -69,7 +98,7 @@ export default function DraggablePanel({
   // Persisted panel dimensions
   const [size, setSize] = useState<{ width: number; height?: number }>(() => {
     try {
-      const saved = localStorage.getItem(`${storageKey}_size`)
+      const saved = getPanelStorage(`${storageKey}_size`)
       if (saved) {
         const parsed = JSON.parse(saved)
         if (typeof parsed.width === 'number' && parsed.width >= minWidth) {
@@ -86,7 +115,7 @@ export default function DraggablePanel({
   // Load persisted position and collapse state
   const [position, setPosition] = useState<{ x: number; y: number }>(() => {
     try {
-      const saved = localStorage.getItem(storageKey)
+      const saved = getPanelStorage(storageKey)
       if (saved) {
         const parsed = JSON.parse(saved)
         if (typeof parsed.x === 'number' && typeof parsed.y === 'number') {
@@ -104,7 +133,7 @@ export default function DraggablePanel({
 
   const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
     try {
-      const saved = localStorage.getItem(`${storageKey}_collapsed`)
+      const saved = getPanelStorage(`${storageKey}_collapsed`)
       return saved === 'true'
     } catch {
       return false
@@ -238,9 +267,7 @@ export default function DraggablePanel({
 
       // Persist floating position on drop
       setPosition((curr) => {
-        try {
-          localStorage.setItem(storageKey, JSON.stringify(curr))
-        } catch {}
+        setPanelStorage(storageKey, JSON.stringify(curr))
         return curr
       })
     }
@@ -331,12 +358,10 @@ export default function DraggablePanel({
       window.removeEventListener('pointerup', handlePointerUp)
 
       const finalSize = { width: currentWidth, height: currentHeight }
-      try {
-        localStorage.setItem(`${storageKey}_size`, JSON.stringify(finalSize))
-        if (currentPosX !== startPosX || currentPosY !== startPosY) {
-          localStorage.setItem(storageKey, JSON.stringify({ x: currentPosX, y: currentPosY }))
-        }
-      } catch {}
+      setPanelStorage(`${storageKey}_size`, JSON.stringify(finalSize))
+      if (currentPosX !== startPosX || currentPosY !== startPosY) {
+        setPanelStorage(storageKey, JSON.stringify({ x: currentPosX, y: currentPosY }))
+      }
 
       onResize?.(finalSize)
     }
@@ -354,9 +379,7 @@ export default function DraggablePanel({
   const toggleCollapse = () => {
     setIsCollapsed((prev) => {
       const next = !prev
-      try {
-        localStorage.setItem(`${storageKey}_collapsed`, String(next))
-      } catch {}
+      setPanelStorage(`${storageKey}_collapsed`, String(next))
       return next
     })
   }
@@ -365,9 +388,7 @@ export default function DraggablePanel({
     if (e) e.stopPropagation()
     setPosition(defaultPosition)
     setContextMenu(null)
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(defaultPosition))
-    } catch {}
+    setPanelStorage(storageKey, JSON.stringify(defaultPosition))
   }
 
   const handleResetSize = (e?: React.MouseEvent) => {
@@ -375,9 +396,7 @@ export default function DraggablePanel({
     const defaultS = { width: defaultW, height: defaultH }
     setSize(defaultS)
     setContextMenu(null)
-    try {
-      localStorage.removeItem(`${storageKey}_size`)
-    } catch {}
+    removePanelStorage(`${storageKey}_size`)
     onResize?.(defaultS)
   }
 

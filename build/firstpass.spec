@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 # PyInstaller spec file for FirstPass Python backend
 # Run from the project root:
-#   pyinstaller build/photo-culler.spec
+#   pyinstaller build/firstpass.spec
 
 import sys
 import os
@@ -60,74 +60,99 @@ except ImportError:
     pass
 
 # -----------------------------------------------------------------------
-# Hidden imports (dynamic imports that PyInstaller might miss)
+# Hidden imports (dependencies that PyInstaller might miss)
 # -----------------------------------------------------------------------
 hiddenimports = [
-    # FastAPI / Uvicorn internals
+    # FastAPI / Uvicorn
+    "uvicorn",
     "uvicorn.logging",
     "uvicorn.loops",
     "uvicorn.loops.auto",
-    "uvicorn.loops.asyncio",
     "uvicorn.protocols",
     "uvicorn.protocols.http",
     "uvicorn.protocols.http.auto",
-    "uvicorn.protocols.http.h11_impl",
-    "uvicorn.protocols.http.httptools_impl",
     "uvicorn.protocols.websockets",
     "uvicorn.protocols.websockets.auto",
     "uvicorn.lifespan",
     "uvicorn.lifespan.on",
-    "uvicorn.lifespan.off",
-    # Pydantic
-    "pydantic.deprecated.class_validators",
-    "pydantic.v1",
-    # SQLAlchemy dialects
+    "fastapi",
+    "pydantic",
+    "pydantic_settings",
+    "starlette",
+    # Database
+    "sqlalchemy",
     "sqlalchemy.dialects.sqlite",
-    # Image libraries
-    "PIL._tkinter_finder",
-    "skimage",
-    # Torch
+    # Image processing
+    "PIL",
+    "PIL.Image",
+    "PIL.ExifTags",
+    "cv2",
+    "numpy",
+    "scipy",
+    "scipy.ndimage",
+    "imagehash",
+    "rawpy",
+    # PyTorch
     "torch",
     "torchvision",
-    # PyIQA
+    "torchvision.transforms",
+    # pyiqa
     "pyiqa",
+    "pyiqa.models",
     "pyiqa.archs",
-    "pyiqa.archs.brisque_arch",
-    # imagehash
-    "imagehash",
-    # rawpy
-    "rawpy",
-    # aiofiles
+    # Other utilities
     "aiofiles",
-    # send2trash
     "send2trash",
-    # scipy
-    "scipy.special.cython_special",
-    # email-validator (fastapi optional dep)
-    "email_validator",
-    # multipart
-    "multipart",
+    "tqdm",
+    # Backend modules
+    "backend.main",
+    "backend.database",
+    "backend.models.photo",
+    "backend.schemas.photo",
+    "backend.analyzer.pipeline",
+    "backend.analyzer.blur",
+    "backend.analyzer.exposure",
+    "backend.analyzer.faces",
+    "backend.analyzer.duplicates",
+    "backend.analyzer.aesthetic",
+    "backend.analyzer.composition",
+    "backend.analyzer.gpu",
+    "backend.routers.scan",
+    "backend.routers.analyze",
+    "backend.routers.review",
+    "backend.routers.settings",
+    "backend.routers.export",
+    "backend.routers.target_delivery",
+    "backend.routers.updater",
 ]
+
+# Optional dlib (may not be installed in all environments)
+try:
+    import dlib
+    hiddenimports.append("dlib")
+except ImportError:
+    pass
 
 # -----------------------------------------------------------------------
 # Analysis
 # -----------------------------------------------------------------------
 a = Analysis(
-    [str(project_root / "run_backend.py")],
+    [str(backend_dir / "main.py")],
     pathex=[str(project_root), str(backend_dir)],
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,
-    hookspath=[str(project_root / "build" / "hooks")],
+    hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
+        # Exclude large, unused modules to keep binary size down
         "tkinter",
         "matplotlib",
-        "IPython",
-        "jupyter",
         "notebook",
+        "IPython",
         "pytest",
+        "unittest",
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -135,7 +160,11 @@ a = Analysis(
     noarchive=False,
 )
 
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+pyz = PYZ(
+    a.pure,
+    a.zipped_data,
+    cipher=block_cipher,
+)
 
 exe = EXE(
     pyz,

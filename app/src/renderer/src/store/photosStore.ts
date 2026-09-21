@@ -57,7 +57,7 @@ export interface UndoRecord {
 
 function getStoredViewOptions(): ViewOptions {
   try {
-    const saved = localStorage.getItem('photo_culler_view_options')
+    const saved = localStorage.getItem('firstpass_view_options') || localStorage.getItem('photo_culler_view_options')
     if (saved) {
       return { ...defaultViewOptions, ...JSON.parse(saved) }
     }
@@ -143,18 +143,21 @@ export const usePhotosStore = create<PhotosStore>((set, get) => ({
   backendReady: false,
   undoStack: [],
   redoStack: [],
-  lastReviewedPhotoId: (() => { try { const v = localStorage.getItem('photo_culler_last_photo'); return v ? parseInt(v) : null } catch { return null } })(),
-  activePhotoId: (() => { try { const v = localStorage.getItem('photo_culler_active_photo_id') || localStorage.getItem('photo_culler_last_photo'); return v ? parseInt(v) : null } catch { return null } })(),
-  autoAdvance: (() => { try { return localStorage.getItem('photo_culler_auto_advance') !== 'false' } catch { return true } })(),
-  filmstripPosition: (() => { try { return (localStorage.getItem('photo_culler_filmstrip') as any) || 'bottom' } catch { return 'bottom' } })(),
+  lastReviewedPhotoId: (() => { try { const v = localStorage.getItem('firstpass_last_photo') || localStorage.getItem('photo_culler_last_photo'); return v ? parseInt(v) : null } catch { return null } })(),
+  activePhotoId: (() => { try { const v = localStorage.getItem('firstpass_active_photo_id') || localStorage.getItem('firstpass_last_photo') || localStorage.getItem('photo_culler_active_photo_id') || localStorage.getItem('photo_culler_last_photo'); return v ? parseInt(v) : null } catch { return null } })(),
+  autoAdvance: (() => { try { const v = localStorage.getItem('firstpass_auto_advance') ?? localStorage.getItem('photo_culler_auto_advance'); return v !== 'false' } catch { return true } })(),
+  filmstripPosition: (() => { try { return (localStorage.getItem('firstpass_filmstrip') || localStorage.getItem('photo_culler_filmstrip') as any) || 'bottom' } catch { return 'bottom' } })(),
 
   setActivePhotoId: (id) => {
     set({ activePhotoId: id, lastReviewedPhotoId: id })
     try {
       if (id !== null) {
+        localStorage.setItem('firstpass_active_photo_id', String(id))
+        localStorage.setItem('firstpass_last_photo', String(id))
         localStorage.setItem('photo_culler_active_photo_id', String(id))
         localStorage.setItem('photo_culler_last_photo', String(id))
       } else {
+        localStorage.removeItem('firstpass_active_photo_id')
         localStorage.removeItem('photo_culler_active_photo_id')
       }
     } catch {}
@@ -163,13 +166,19 @@ export const usePhotosStore = create<PhotosStore>((set, get) => ({
   toggleAutoAdvance: () => {
     const next = !get().autoAdvance
     set({ autoAdvance: next })
-    try { localStorage.setItem('photo_culler_auto_advance', String(next)) } catch {}
+    try {
+      localStorage.setItem('firstpass_auto_advance', String(next))
+      localStorage.setItem('photo_culler_auto_advance', String(next))
+    } catch {}
     toast(next ? '⚡ Auto-Advance Enabled' : '⏸ Auto-Advance Paused', { icon: next ? '⚡' : '⏸', duration: 1500 })
   },
 
   setFilmstripPosition: (pos) => {
     set({ filmstripPosition: pos })
-    try { localStorage.setItem('photo_culler_filmstrip', pos) } catch {}
+    try {
+      localStorage.setItem('firstpass_filmstrip', pos)
+      localStorage.setItem('photo_culler_filmstrip', pos)
+    } catch {}
   },
 
   togglePhotoTag: async (photoId: number) => {
@@ -196,13 +205,22 @@ export const usePhotosStore = create<PhotosStore>((set, get) => ({
 
   setLastReviewedPhotoId: (id) => {
     set({ lastReviewedPhotoId: id })
-    try { if (id) localStorage.setItem('photo_culler_last_photo', String(id)); else localStorage.removeItem('photo_culler_last_photo') } catch {}
+    try {
+      if (id) {
+        localStorage.setItem('firstpass_last_photo', String(id))
+        localStorage.setItem('photo_culler_last_photo', String(id))
+      } else {
+        localStorage.removeItem('firstpass_last_photo')
+        localStorage.removeItem('photo_culler_last_photo')
+      }
+    } catch {}
   },
   setPhotos: (photos) => set({ photos }),
   setFitMode: (fitMode) => set({ fitMode }),
   setViewOptions: (opts) => set((state) => {
     const next = { ...state.viewOptions, ...opts }
     try {
+      localStorage.setItem('firstpass_view_options', JSON.stringify(next))
       localStorage.setItem('photo_culler_view_options', JSON.stringify(next))
     } catch {}
     return { viewOptions: next }
