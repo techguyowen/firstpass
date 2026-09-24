@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Check, X, SkipForward, Bookmark, GripVertical, MoreVertical,
   ArrowDown, ArrowLeft, ArrowRight, Move, Maximize2, Minimize2, PanelRight, RotateCcw
@@ -87,7 +88,9 @@ export default function CullingActionBar({
     return undefined
   })
 
-  const [showMenu, setShowMenu] = useState(false)
+  // Options menu anchor in viewport coords; the menu renders via portal with
+  // position:fixed so scroll/overflow containers can never clip it.
+  const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(null)
   const barRef = useRef<HTMLDivElement>(null)
   const pointerStartRef = useRef<{ x: number; y: number } | null>(null)
   const isDraggingRef = useRef(false)
@@ -101,13 +104,26 @@ export default function CullingActionBar({
     if (controlledScale) setScale(controlledScale)
   }, [controlledScale])
 
+  // Close the options menu on Escape
+  useEffect(() => {
+    if (!menuAnchor) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        setMenuAnchor(null)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [menuAnchor])
+
   const handleUpdatePlacement = (newPlacement: TriagePlacement) => {
     setPlacement(newPlacement)
     try {
       localStorage.setItem('photo_culler_triage_placement', newPlacement)
     } catch {}
     if (onSetPlacement) onSetPlacement(newPlacement)
-    setShowMenu(false)
+    setMenuAnchor(null)
   }
 
   const handleUpdateScale = (newScale: TriageScale) => {
@@ -116,7 +132,7 @@ export default function CullingActionBar({
       localStorage.setItem('photo_culler_triage_scale', newScale)
     } catch {}
     if (onSetScale) onSetScale(newScale)
-    setShowMenu(false)
+    setMenuAnchor(null)
   }
 
   // Pointer-based smooth dragging & docking to lines
@@ -290,7 +306,7 @@ export default function CullingActionBar({
       ref={barRef}
       onContextMenu={(e) => {
         e.preventDefault()
-        setShowMenu(true)
+        setMenuAnchor({ x: e.clientX, y: e.clientY })
       }}
       className={clsx(
         'select-none transition-all duration-200 z-40',
@@ -403,29 +419,52 @@ export default function CullingActionBar({
           </button>
         )}
 
-        {/* Placement & Scale Menu Button */}
+        {/* Placement & Scale Menu Button (menu renders via portal, fixed, so it can never be clipped) */}
         <div className="relative">
           <button
             type="button"
-            onClick={() => setShowMenu((prev) => !prev)}
+            onClick={(e) => {
+              e.stopPropagation()
+              if (menuAnchor) {
+                setMenuAnchor(null)
+              } else {
+                const rect = e.currentTarget.getBoundingClientRect()
+                setMenuAnchor({ x: rect.right, y: rect.top })
+              }
+            }}
             className="p-1 text-neutral-500 hover:text-neutral-200 hover:bg-neutral-800/80 rounded-lg cursor-pointer transition-colors"
             title="Action Bar Layout & Scale Options"
           >
             <MoreVertical size={13} />
           </button>
 
-          {showMenu && (
+          {menuAnchor && createPortal(
             <>
-              <div className="fixed inset-0 z-50" onClick={() => setShowMenu(false)} />
+              <div className="fixed inset-0 z-[9999]" onClick={() => setMenuAnchor(null)} />
               <div
-                className={clsx(
-                  "absolute bg-neutral-900 border border-neutral-700 rounded-xl shadow-2xl py-1 text-xs min-w-[200px] z-50 select-none animate-in fade-in zoom-in-95 duration-100",
+                style={
                   placement === 'side-left'
-                    ? "left-full ml-3 bottom-0"
+                    ? {
+                        position: 'fixed',
+                        left: `${menuAnchor.x + 8}px`,
+                        top: `${Math.max(10, Math.min(menuAnchor.y, window.innerHeight - 360))}px`,
+                        zIndex: 10000,
+                      }
                     : placement === 'side-right'
-                    ? "right-full mr-3 bottom-0"
-                    : "right-0 bottom-full mb-2"
-                )}
+                    ? {
+                        position: 'fixed',
+                        right: `${Math.max(10, window.innerWidth - menuAnchor.x + 32)}px`,
+                        top: `${Math.max(10, Math.min(menuAnchor.y, window.innerHeight - 360))}px`,
+                        zIndex: 10000,
+                      }
+                    : {
+                        position: 'fixed',
+                        bottom: `${Math.max(10, window.innerHeight - menuAnchor.y + 8)}px`,
+                        right: `${Math.max(10, window.innerWidth - menuAnchor.x)}px`,
+                        zIndex: 10000,
+                      }
+                }
+                className="bg-neutral-900 border border-neutral-700 rounded-xl shadow-2xl py-1 text-xs min-w-[200px] select-none animate-in fade-in zoom-in-95 duration-100"
               >
                 <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-neutral-400 border-b border-neutral-800">
                   Placement
@@ -519,7 +558,7 @@ export default function CullingActionBar({
                     type="button"
                     onClick={() => {
                       setFloatWidth(undefined)
-                      setShowMenu(false)
+                      setMenuAnchor(null)
                       try {
                         localStorage.removeItem('photo_culler_triage_float_width')
                       } catch {}
@@ -531,7 +570,8 @@ export default function CullingActionBar({
                   </button>
                 )}
               </div>
-            </>
+            </>,
+            document.body
           )}
         </div>
 

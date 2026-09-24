@@ -12,6 +12,8 @@ interface FilmstripProps {
   onSelectPhoto: (photoId: number) => void
   onTogglePosition: () => void
   onClose: () => void
+  /** When true, fills the unified side-by-side bottom bar height instead of a fixed h-28. */
+  fillHeight?: boolean
 }
 
 function scoreColor(score: number | null): string {
@@ -28,6 +30,7 @@ export default function Filmstrip({
   onSelectPhoto,
   onTogglePosition,
   onClose,
+  fillHeight = false,
 }: FilmstripProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const activeThumbRef = useRef<HTMLButtonElement>(null)
@@ -50,7 +53,9 @@ export default function Filmstrip({
       className={clsx(
         'bg-neutral-950/95 backdrop-blur border-neutral-800 z-30 transition-all duration-200 flex flex-col',
         isBottom
-          ? 'w-full h-28 border-t flex-shrink-0'
+          ? fillHeight
+            ? 'w-full h-full min-h-[90px] border rounded-xl flex-shrink-0 overflow-hidden'
+            : 'w-full h-28 border-t flex-shrink-0'
           : 'h-full w-36 border-l flex-shrink-0'
       )}
     >

@@ -367,12 +367,18 @@ export default function Review() {
     return dockDragManager.subscribe(setDragState)
   }, [])
 
-  const [columnMenuOpen, setColumnMenuOpen] = useState<string | null>(null)
+  const [columnMenuAnchor, setColumnMenuAnchor] = useState<{
+    id: string
+    groupIndex: number
+    activeTab: string
+    x: number
+    y: number
+  } | null>(null)
 
   // Modular Workspace Layouts System
   const [workspaces, setWorkspaces] = useState<WorkspaceLayout[]>(getAllWorkspaces)
   const [activeWorkspaceId, setActiveWorkspaceIdState] = useState<string>(getActiveWorkspaceId)
-  const [showWorkspacesMenu, setShowWorkspacesMenu] = useState(false)
+  const [workspacesMenuAnchor, setWorkspacesMenuAnchor] = useState<{ x: number; y: number } | null>(null)
   const [showSaveWorkspaceModal, setShowSaveWorkspaceModal] = useState(false)
   const [newWorkspaceName, setNewWorkspaceName] = useState('')
   const [activeDropZone, setActiveDropZone] = useState<'sidebar' | 'bottom' | null>(null)
@@ -383,10 +389,10 @@ export default function Review() {
       const saved = getReviewStorage('bottom_height')
       if (saved) {
         const parsed = parseInt(saved, 10)
-        if (parsed >= 90 && parsed <= 450) return parsed
+        if (parsed >= 85 && parsed <= 300) return parsed
       }
     } catch {}
-    return 190
+    return 115
   })
   const [isBottomCollapsed, setIsBottomCollapsed] = useState(false)
   const [showBottomMenu, setShowBottomMenu] = useState(false)
@@ -411,6 +417,19 @@ export default function Review() {
       window.removeEventListener('keyup', handleKeyUp)
     }
   }, [])
+
+  // Close the workspaces menu on Escape (capture phase so global shortcuts don't fire first)
+  useEffect(() => {
+    if (!workspacesMenuAnchor) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        setWorkspacesMenuAnchor(null)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [workspacesMenuAnchor])
 
   const handleSelectBottomTab = useCallback((groupId: string, tabId: string) => {
     setBottomGroups(prev => {
@@ -754,7 +773,7 @@ export default function Review() {
 
     const onMouseMove = (ev: MouseEvent) => {
       const delta = startY - ev.clientY
-      const newHeight = Math.max(90, Math.min(450, startHeight + delta))
+      const newHeight = Math.max(85, Math.min(300, startHeight + delta))
       setBottomBarHeight(newHeight)
       if (isBottomCollapsed && delta > 20) {
         setIsBottomCollapsed(false)
@@ -1189,6 +1208,11 @@ export default function Review() {
     pending: 'border-transparent',
   }
 
+  // Unified bottom bar: docked modules + filmstrip render side-by-side
+  const showBottomModules = bottomGroups.length > 0 && allBottomTabs.length > 0
+  const showBottomFilmstrip = filmstripPosition === 'bottom' && !fullscreen
+  const isBottomSideBySide = showBottomModules && showBottomFilmstrip
+
   return (
     <div className={clsx('flex h-full bg-black relative', fullscreen && 'fixed inset-0 z-50')}>
       {/* Universal 60fps Drag Ghost Overlay & Snap Lines */}
@@ -1336,7 +1360,7 @@ export default function Review() {
       <div className="flex flex-col flex-1 min-w-0 relative">
         {/* Top bar */}
         <div className={clsx(
-          "flex items-center justify-between gap-2.5 px-3 py-1.5 bg-neutral-900/90 backdrop-blur flex-shrink-0 transition-opacity duration-300 border-b border-neutral-800/80 select-none overflow-x-auto scrollbar-none",
+          "flex items-center justify-between gap-2.5 px-3 py-1.5 bg-neutral-900/90 backdrop-blur flex-shrink-0 transition-opacity duration-300 border-b border-neutral-800/80 select-none overflow-visible relative z-30",
           lightsOutLevel === 1 && "lights-out-dim",
           lightsOutLevel === 2 && "lights-out-blackout pointer-events-none"
         )}>
@@ -1438,10 +1462,21 @@ export default function Review() {
 
           {/* RIGHT GROUP: Layout & Workspaces & Studio Tools */}
           <div className="flex items-center gap-1.5 shrink-0">
-            {/* Workspaces Dropdown */}
-            <div className="relative shrink-0">
+            {/* Workspaces Dropdown (menu rendered fixed at root to avoid overflow clipping) */}
+            <div className="shrink-0">
               <button
-                onClick={() => setShowWorkspacesMenu(prev => !prev)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (workspacesMenuAnchor) {
+                    setWorkspacesMenuAnchor(null)
+                  } else {
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    setWorkspacesMenuAnchor({
+                      x: rect.right,
+                      y: rect.bottom,
+                    })
+                  }
+                }}
                 className="flex items-center gap-1.5 px-2 py-1 text-xs rounded-lg border border-neutral-700/80 bg-neutral-800/90 hover:bg-neutral-700 text-neutral-200 hover:text-white transition-colors cursor-pointer shadow-sm"
                 title="Switch or Save Workspaces"
               >
@@ -1451,102 +1486,6 @@ export default function Review() {
                 </span>
                 <ChevronDown size={10} className="text-neutral-400" />
               </button>
-
-              {showWorkspacesMenu && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setShowWorkspacesMenu(false)} />
-                  <div className="absolute right-0 mt-1 w-64 bg-neutral-900 border border-neutral-700 rounded-xl shadow-2xl py-1.5 z-50 animate-in fade-in zoom-in-95 duration-100">
-                    <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-neutral-400 font-bold border-b border-neutral-800 flex items-center justify-between">
-                      <span>Preset Workspaces</span>
-                      <span className="text-neutral-500 font-normal">Studio Presets</span>
-                    </div>
-                    {PRESET_WORKSPACES.map(preset => (
-                      <button
-                        key={preset.id}
-                        onClick={() => {
-                          applyWorkspace(preset)
-                          setShowWorkspacesMenu(false)
-                        }}
-                        className={clsx(
-                          'w-full flex items-start justify-between px-3 py-1.5 text-xs text-left transition-colors hover:bg-white/5 cursor-pointer',
-                          activeWorkspaceId === preset.id ? 'text-blue-400 font-semibold bg-blue-500/10' : 'text-neutral-300'
-                        )}
-                      >
-                        <div>
-                          <div className="font-medium flex items-center gap-1.5">
-                            <span>{preset.name}</span>
-                          </div>
-                          {preset.description && (
-                            <div className="text-[10px] text-neutral-500 line-clamp-1 mt-0.5">{preset.description}</div>
-                          )}
-                        </div>
-                        {activeWorkspaceId === preset.id && <Check size={13} className="shrink-0 mt-0.5" />}
-                      </button>
-                    ))}
-
-                    {/* Custom user workspaces */}
-                    {customWorkspaces.length > 0 && (
-                      <>
-                        <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-neutral-400 font-bold border-t border-b border-neutral-800 mt-1">
-                          Custom Workspaces
-                        </div>
-                        {customWorkspaces.map(custom => (
-                          <div
-                            key={custom.id}
-                            className="flex items-center justify-between px-3 py-1.5 text-xs hover:bg-white/5 group"
-                          >
-                            <button
-                              onClick={() => {
-                                applyWorkspace(custom)
-                                setShowWorkspacesMenu(false)
-                              }}
-                              className={clsx(
-                                'flex-1 text-left truncate cursor-pointer',
-                                activeWorkspaceId === custom.id ? 'text-blue-400 font-semibold' : 'text-neutral-300'
-                              )}
-                            >
-                              {custom.name}
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleDeleteCustomWorkspace(custom.id)
-                              }}
-                              className="text-neutral-600 hover:text-rose-400 p-0.5 rounded transition-colors opacity-0 group-hover:opacity-100 cursor-pointer"
-                              title="Delete this workspace"
-                            >
-                              <X size={12} />
-                            </button>
-                          </div>
-                        ))}
-                      </>
-                    )}
-
-                    <div className="border-t border-neutral-800 mt-1 pt-1 px-1">
-                      <button
-                        onClick={() => {
-                          setShowWorkspacesMenu(false)
-                          setShowSaveWorkspaceModal(true)
-                        }}
-                        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-neutral-300 hover:text-white hover:bg-white/5 rounded-lg cursor-pointer transition-colors"
-                      >
-                        <Sparkles size={12} className="text-amber-400" />
-                        <span>Save Current Layout As...</span>
-                      </button>
-                      <button
-                        onClick={() => {
-                          applyWorkspace(resetWorkspace(activeWorkspaceId))
-                          setShowWorkspacesMenu(false)
-                        }}
-                        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-neutral-400 hover:text-amber-300 hover:bg-white/5 rounded-lg cursor-pointer transition-colors"
-                      >
-                        <RotateCcw size={12} />
-                        <span>Reset to Default Layout</span>
-                      </button>
-                    </div>
-                  </div>
-                </>
-              )}
             </div>
 
             {/* Exposure Clipping (E) */}
@@ -1827,6 +1766,24 @@ export default function Review() {
               <ArrowRight size={20} />
             </button>
           )}
+
+          {/* Floating Culling Action Bar when placement is bottom */}
+          {triagePlacement === 'bottom' && (
+            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-30 pointer-events-auto transition-all">
+              <CullingActionBar
+                status={photo.status}
+                isTagged={Boolean(photo.is_tagged)}
+                onStatus={handleStatus}
+                onToggleTag={() => photo && togglePhotoTag(photo.id)}
+                placement="bottom"
+                onSetPlacement={setTriagePlacement}
+                scale={triageScale}
+                onSetScale={setTriageScale}
+                isDimmed={lightsOutLevel === 1}
+                isBlackout={lightsOutLevel === 2}
+              />
+            </div>
+          )}
         </div>
 
         {/* Floating Face Loupe */}
@@ -1907,8 +1864,13 @@ export default function Review() {
           )
         })}
 
-        {/* Docked Bottom Stage Bar (Horizontal Split Columns) */}
-        {bottomGroups.length > 0 && allBottomTabs.length > 0 && (
+        {/* Unified Bottom Bar: docked modules + filmstrip side-by-side to maximize photo space */}
+        {(showBottomModules || showBottomFilmstrip) && (
+          <div className={isBottomSideBySide
+            ? "flex flex-row items-stretch w-full gap-2 px-4 pb-2 flex-shrink-0 relative"
+            : "flex flex-col w-full flex-shrink-0 relative"
+          }>
+          {showBottomModules && (
           <div
             data-dock-zone="bottom"
             onDragOver={(e) => {
@@ -1931,7 +1893,9 @@ export default function Review() {
               }
             }}
             className={clsx(
-              "px-4 pb-2 flex-shrink-0 relative transition-opacity duration-300",
+              isBottomSideBySide
+                ? "w-[380px] max-w-[45%] flex-shrink-0 flex flex-col relative transition-opacity duration-300"
+                : "px-4 pb-2 flex-shrink-0 relative transition-opacity duration-300",
               lightsOutLevel === 1 && "lights-out-dim",
               lightsOutLevel === 2 && "lights-out-blackout pointer-events-none"
             )}
@@ -2083,80 +2047,28 @@ export default function Review() {
                             <PanelRight size={12} />
                           </button>
 
-                          {/* Column menu */}
-                          <div className="relative">
-                            <button
-                              onClick={() => setColumnMenuOpen(prev => prev === group.id ? null : group.id)}
-                              className="p-1 rounded text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors cursor-pointer"
-                              title="Column Options & Splitting"
-                            >
-                              <MoreHorizontal size={13} />
-                            </button>
-
-                            {columnMenuOpen === group.id && (
-                              <>
-                                <div className="fixed inset-0 z-40" onClick={() => setColumnMenuOpen(null)} />
-                                <div className="absolute right-0 bottom-full mb-1 w-56 bg-neutral-900 border border-neutral-700/90 rounded-xl shadow-2xl py-1 z-50 text-xs text-neutral-300 backdrop-blur-md">
-                                  <div className="px-3 py-1 text-[10px] font-bold text-neutral-500 uppercase tracking-wider">
-                                    Column & Split Actions
-                                  </div>
-                                  <button
-                                    onClick={() => {
-                                      handleSplitBottomGroup(groupIndex, activeTab, 'right')
-                                      setColumnMenuOpen(null)
-                                    }}
-                                    className="w-full text-left px-3 py-1.5 hover:bg-blue-600 hover:text-white flex items-center gap-2 cursor-pointer"
-                                  >
-                                    <Split size={12} />
-                                    <span>Split to New Column (→)</span>
-                                  </button>
-                                  {bottomGroups.length > 1 && (
-                                    <button
-                                      onClick={() => {
-                                        handleMergeBottomGroups()
-                                        setColumnMenuOpen(null)
-                                      }}
-                                      className="w-full text-left px-3 py-1.5 hover:bg-blue-600 hover:text-white flex items-center gap-2 cursor-pointer"
-                                    >
-                                      <Columns size={12} />
-                                      <span>Merge All Columns into One</span>
-                                    </button>
-                                  )}
-                                  <button
-                                    onClick={() => {
-                                      setModulePlacement(activeTab, 'floating')
-                                      setColumnMenuOpen(null)
-                                    }}
-                                    className="w-full text-left px-3 py-1.5 hover:bg-blue-600 hover:text-white flex items-center gap-2 cursor-pointer"
-                                  >
-                                    <ExternalLink size={12} />
-                                    <span>Float Current Tab (↗)</span>
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      setModulePlacement(activeTab, 'sidebar')
-                                      setColumnMenuOpen(null)
-                                    }}
-                                    className="w-full text-left px-3 py-1.5 hover:bg-blue-600 hover:text-white flex items-center gap-2 cursor-pointer"
-                                  >
-                                    <PanelRight size={12} />
-                                    <span>Dock to Sidebar (📌)</span>
-                                  </button>
-                                  <div className="border-t border-neutral-800 my-1" />
-                                  <button
-                                    onClick={() => {
-                                      setIsBottomCollapsed(prev => !prev)
-                                      setColumnMenuOpen(null)
-                                    }}
-                                    className="w-full text-left px-3 py-1.5 hover:bg-neutral-800 flex items-center gap-2 cursor-pointer"
-                                  >
-                                    {isBottomCollapsed ? <Square size={12} /> : <Minus size={12} />}
-                                    <span>{isBottomCollapsed ? 'Expand Content' : 'Collapse Content'}</span>
-                                  </button>
-                                </div>
-                              </>
-                            )}
-                          </div>
+                          {/* Column menu (anchored, rendered fixed at root to avoid overflow clipping) */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (columnMenuAnchor?.id === group.id) {
+                                setColumnMenuAnchor(null)
+                              } else {
+                                const rect = e.currentTarget.getBoundingClientRect()
+                                setColumnMenuAnchor({
+                                  id: group.id,
+                                  groupIndex,
+                                  activeTab,
+                                  x: rect.right,
+                                  y: rect.top,
+                                })
+                              }
+                            }}
+                            className="p-1 rounded text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors cursor-pointer"
+                            title="Column Options & Splitting"
+                          >
+                            <MoreHorizontal size={13} />
+                          </button>
 
                           {/* Close tab / return to sidebar */}
                           <button
@@ -2224,6 +2136,26 @@ export default function Review() {
               })}
             </div>
           </div>
+          )}
+          {/* Right: Bottom Filmstrip (takes remaining width when side-by-side) */}
+          {showBottomFilmstrip && (
+            <div className={clsx(
+              isBottomSideBySide ? "flex-1 min-w-0 flex flex-col" : "transition-opacity duration-300",
+              lightsOutLevel === 1 && "lights-out-dim",
+              lightsOutLevel === 2 && "lights-out-blackout pointer-events-none"
+            )}>
+              <Filmstrip
+                photos={photos}
+                currentPhotoId={photo.id}
+                position="bottom"
+                fillHeight={isBottomSideBySide}
+                onSelectPhoto={(pid) => navigate(`/review/${pid}`)}
+                onTogglePosition={() => setFilmstripPosition('side')}
+                onClose={() => setFilmstripPosition('hidden')}
+              />
+            </div>
+          )}
+          </div>
         )}
 
         {/* Available Bottom Dock Zone when nothing is docked at bottom and user is dragging */}
@@ -2259,8 +2191,8 @@ export default function Review() {
           </div>
         )}
 
-        {/* Adaptive Moveable Culling Action Bar */}
-        {triagePlacement !== 'sidebar' && (
+        {/* Adaptive Moveable Culling Action Bar (bottom placement floats over the photo viewport) */}
+        {triagePlacement !== 'sidebar' && triagePlacement !== 'bottom' && (
           <CullingActionBar
             status={photo.status}
             isTagged={Boolean(photo.is_tagged)}
@@ -2275,25 +2207,23 @@ export default function Review() {
           />
         )}
 
-        {/* Keyboard hint */}
+        {/* Keyboard hint (compact single line) */}
         <div className={clsx(
-          "flex justify-center flex-wrap gap-3.5 pb-2 text-[11px] text-neutral-500 flex-shrink-0 select-none transition-opacity duration-300",
+          "flex items-center justify-center gap-3 py-0.5 text-[10px] text-neutral-400 flex-shrink-0 select-none transition-opacity duration-300",
           lightsOutLevel === 1 && "lights-out-dim",
           lightsOutLevel === 2 && "lights-out-blackout pointer-events-none"
         )}>
-          <span><strong className="text-neutral-300">` / ~ / A</strong> Accept</span>
-          <span><strong className="text-neutral-300">R / 2</strong> Reject</span>
-          <span><strong className="text-neutral-300">\</strong> Tag</span>
-          <span><strong className="text-neutral-300">Hold Click / Z</strong> 100% Zoom</span>
-          <span><strong className="text-neutral-300">L</strong> Lights Out</span>
-          <span><strong className="text-neutral-300">I</strong> Info HUD</span>
-          <span><strong className="text-neutral-300">E</strong> Clipping</span>
-          <span><strong className="text-neutral-300">H</strong> Histogram</span>
-          <span><strong className="text-neutral-300">C</strong> 2-Up Compare</span>
-          <span><strong className="text-neutral-300">Tab</strong> Inspector</span>
-          <span><strong className="text-neutral-300">Caps Lock</strong> Auto-Advance</span>
-          <span><strong className="text-neutral-300">B</strong> Filmstrip</span>
-          <span><strong className="text-neutral-300">Esc</strong> Reset / Gallery</span>
+          <span><strong className="text-neutral-200">A</strong> Accept</span>
+          <span>•</span>
+          <span><strong className="text-neutral-200">R</strong> Reject</span>
+          <span>•</span>
+          <span><strong className="text-neutral-200">Space</strong> Skip</span>
+          <span>•</span>
+          <span><strong className="text-neutral-200">\</strong> Tag</span>
+          <span>•</span>
+          <span><strong className="text-neutral-200">Z</strong> Zoom</span>
+          <span>•</span>
+          <span><strong className="text-neutral-200">?</strong> All Shortcuts</span>
         </div>
 
         {/* Duplicate group strip */}
@@ -2331,23 +2261,6 @@ export default function Review() {
           </div>
         )}
 
-        {/* Bottom Filmstrip */}
-        {filmstripPosition === 'bottom' && !fullscreen && (
-          <div className={clsx(
-            "transition-opacity duration-300",
-            lightsOutLevel === 1 && "lights-out-dim",
-            lightsOutLevel === 2 && "lights-out-blackout pointer-events-none"
-          )}>
-            <Filmstrip
-              photos={photos}
-              currentPhotoId={photo.id}
-              position="bottom"
-              onSelectPhoto={(pid) => navigate(`/review/${pid}`)}
-              onTogglePosition={() => setFilmstripPosition('side')}
-              onClose={() => setFilmstripPosition('hidden')}
-            />
-          </div>
-        )}
       </div>
 
       {/* Side Filmstrip */}
@@ -2763,6 +2676,184 @@ export default function Review() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Workspaces menu (fixed at root so overflow containers can't clip it) */}
+      {workspacesMenuAnchor && (
+        <>
+          <div className="fixed inset-0 z-[9999]" onClick={() => setWorkspacesMenuAnchor(null)} />
+          <div
+            style={{
+              position: 'fixed',
+              top: `${workspacesMenuAnchor.y + 4}px`,
+              right: `${Math.max(10, window.innerWidth - workspacesMenuAnchor.x)}px`,
+              zIndex: 10000,
+            }}
+            className="w-64 bg-neutral-900 border border-neutral-700 rounded-xl shadow-2xl py-1.5 animate-in fade-in zoom-in-95 duration-100"
+          >
+            <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-neutral-400 font-bold border-b border-neutral-800 flex items-center justify-between">
+              <span>Preset Workspaces</span>
+              <span className="text-neutral-500 font-normal">Studio Presets</span>
+            </div>
+            {PRESET_WORKSPACES.map(preset => (
+              <button
+                key={preset.id}
+                onClick={() => {
+                  applyWorkspace(preset)
+                  setWorkspacesMenuAnchor(null)
+                }}
+                className={clsx(
+                  'w-full flex items-start justify-between px-3 py-1.5 text-xs text-left transition-colors hover:bg-white/5 cursor-pointer',
+                  activeWorkspaceId === preset.id ? 'text-blue-400 font-semibold bg-blue-500/10' : 'text-neutral-300'
+                )}
+              >
+                <div>
+                  <div className="font-medium flex items-center gap-1.5">
+                    <span>{preset.name}</span>
+                  </div>
+                  {preset.description && (
+                    <div className="text-[10px] text-neutral-500 line-clamp-1 mt-0.5">{preset.description}</div>
+                  )}
+                </div>
+                {activeWorkspaceId === preset.id && <Check size={13} className="shrink-0 mt-0.5" />}
+              </button>
+            ))}
+
+            {/* Custom user workspaces */}
+            {customWorkspaces.length > 0 && (
+              <>
+                <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-neutral-400 font-bold border-t border-b border-neutral-800 mt-1">
+                  Custom Workspaces
+                </div>
+                {customWorkspaces.map(custom => (
+                  <div
+                    key={custom.id}
+                    className="flex items-center justify-between px-3 py-1.5 text-xs hover:bg-white/5 group"
+                  >
+                    <button
+                      onClick={() => {
+                        applyWorkspace(custom)
+                        setWorkspacesMenuAnchor(null)
+                      }}
+                      className={clsx(
+                        'flex-1 text-left truncate cursor-pointer',
+                        activeWorkspaceId === custom.id ? 'text-blue-400 font-semibold' : 'text-neutral-300'
+                      )}
+                    >
+                      {custom.name}
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDeleteCustomWorkspace(custom.id)
+                      }}
+                      className="text-neutral-600 hover:text-rose-400 p-0.5 rounded transition-colors opacity-0 group-hover:opacity-100 cursor-pointer"
+                      title="Delete this workspace"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ))}
+              </>
+            )}
+
+            <div className="border-t border-neutral-800 mt-1 pt-1 px-1">
+              <button
+                onClick={() => {
+                  setWorkspacesMenuAnchor(null)
+                  setShowSaveWorkspaceModal(true)
+                }}
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-neutral-300 hover:text-white hover:bg-white/5 rounded-lg cursor-pointer transition-colors"
+              >
+                <Sparkles size={12} className="text-amber-400" />
+                <span>Save Current Layout As...</span>
+              </button>
+              <button
+                onClick={() => {
+                  applyWorkspace(resetWorkspace(activeWorkspaceId))
+                  setWorkspacesMenuAnchor(null)
+                }}
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-neutral-400 hover:text-amber-300 hover:bg-white/5 rounded-lg cursor-pointer transition-colors"
+              >
+                <RotateCcw size={12} />
+                <span>Reset to Default Layout</span>
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Column options menu (fixed at root so overflow-hidden containers can't clip it) */}
+      {columnMenuAnchor && (
+        <>
+          <div className="fixed inset-0 z-50" onClick={() => setColumnMenuAnchor(null)} />
+          <div
+            style={{
+              position: 'fixed',
+              bottom: `${Math.max(10, window.innerHeight - columnMenuAnchor.y + 4)}px`,
+              right: `${Math.max(10, window.innerWidth - columnMenuAnchor.x)}px`,
+              zIndex: 60,
+            }}
+            className="w-56 bg-neutral-900 border border-neutral-700/90 rounded-xl shadow-2xl py-1 text-xs text-neutral-300 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100"
+          >
+            <div className="px-3 py-1 text-[10px] font-bold text-neutral-500 uppercase tracking-wider">
+              Column & Split Actions
+            </div>
+            <button
+              onClick={() => {
+                handleSplitBottomGroup(columnMenuAnchor.groupIndex, columnMenuAnchor.activeTab, 'right')
+                setColumnMenuAnchor(null)
+              }}
+              className="w-full text-left px-3 py-1.5 hover:bg-blue-600 hover:text-white flex items-center gap-2 cursor-pointer"
+            >
+              <Split size={12} />
+              <span>Split to New Column (→)</span>
+            </button>
+            {bottomGroups.length > 1 && (
+              <button
+                onClick={() => {
+                  handleMergeBottomGroups()
+                  setColumnMenuAnchor(null)
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-blue-600 hover:text-white flex items-center gap-2 cursor-pointer"
+              >
+                <Columns size={12} />
+                <span>Merge All Columns into One</span>
+              </button>
+            )}
+            <button
+              onClick={() => {
+                setModulePlacement(columnMenuAnchor.activeTab, 'floating')
+                setColumnMenuAnchor(null)
+              }}
+              className="w-full text-left px-3 py-1.5 hover:bg-blue-600 hover:text-white flex items-center gap-2 cursor-pointer"
+            >
+              <ExternalLink size={12} />
+              <span>Float Current Tab (↗)</span>
+            </button>
+            <button
+              onClick={() => {
+                setModulePlacement(columnMenuAnchor.activeTab, 'sidebar')
+                setColumnMenuAnchor(null)
+              }}
+              className="w-full text-left px-3 py-1.5 hover:bg-blue-600 hover:text-white flex items-center gap-2 cursor-pointer"
+            >
+              <PanelRight size={12} />
+              <span>Dock to Sidebar (📌)</span>
+            </button>
+            <div className="border-t border-neutral-800 my-1" />
+            <button
+              onClick={() => {
+                setIsBottomCollapsed(prev => !prev)
+                setColumnMenuAnchor(null)
+              }}
+              className="w-full text-left px-3 py-1.5 hover:bg-neutral-800 flex items-center gap-2 cursor-pointer"
+            >
+              {isBottomCollapsed ? <Square size={12} /> : <Minus size={12} />}
+              <span>{isBottomCollapsed ? 'Expand Content' : 'Collapse Content'}</span>
+            </button>
+          </div>
+        </>
       )}
 
       {/* Studio Themes Picker Modal */}
