@@ -5,7 +5,7 @@ import {
   Zap, PanelBottom, Sun, Activity, Columns, Sliders, PanelLeft, PanelRight,
   Palette, Moon, Info, ChevronDown, Users, SlidersHorizontal, RotateCcw, Sparkles,
   ChevronsRight, ChevronsLeft, Anchor, GripVertical, Minus, Square, MoreHorizontal,
-  ExternalLink, Pin, Crown, Split, Film
+  ExternalLink, Pin, Crown, Split, Film, ArrowLeftRight
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '../api/client'
@@ -383,16 +383,36 @@ export default function Review() {
   const [newWorkspaceName, setNewWorkspaceName] = useState('')
   const [activeDropZone, setActiveDropZone] = useState<'sidebar' | 'bottom' | null>(null)
 
-  // Bottom Stage Bar states
+  // Bottom Stage Bar states (unified professional dock)
   const [bottomBarHeight, setBottomBarHeight] = useState<number>(() => {
     try {
       const saved = getReviewStorage('bottom_height')
       if (saved) {
         const parsed = parseInt(saved, 10)
-        if (parsed >= 85 && parsed <= 300) return parsed
+        if (parsed >= 100 && parsed <= 420) return parsed
       }
     } catch {}
-    return 115
+    return 160
+  })
+  // Horizontal split: width of the modules pane when side-by-side with the filmstrip
+  const [bottomSplitWidth, setBottomSplitWidth] = useState<number>(() => {
+    try {
+      const saved = getReviewStorage('bottom_split_width')
+      if (saved) {
+        const parsed = parseInt(saved, 10)
+        const maxWidth = typeof window !== 'undefined' ? window.innerWidth - 300 : 1200
+        if (parsed >= 240 && parsed <= maxWidth) return parsed
+      }
+    } catch {}
+    return 420
+  })
+  // Dock order: which pane sits on the left of the unified bottom dock
+  const [bottomDockSwap, setBottomDockSwap] = useState<'modules-left' | 'filmstrip-left'>(() => {
+    try {
+      const saved = getReviewStorage('bottom_dock_swap')
+      if (saved === 'filmstrip-left' || saved === 'modules-left') return saved
+    } catch {}
+    return 'modules-left'
   })
   const [isBottomCollapsed, setIsBottomCollapsed] = useState(false)
   const [showBottomMenu, setShowBottomMenu] = useState(false)
@@ -809,7 +829,7 @@ export default function Review() {
 
     const onMouseMove = (ev: MouseEvent) => {
       const delta = startY - ev.clientY
-      const newHeight = Math.max(85, Math.min(300, startHeight + delta))
+      const newHeight = Math.max(100, Math.min(420, startHeight + delta))
       setBottomBarHeight(newHeight)
       if (isBottomCollapsed && delta > 20) {
         setIsBottomCollapsed(false)
@@ -829,6 +849,49 @@ export default function Review() {
     window.addEventListener('mousemove', onMouseMove)
     window.addEventListener('mouseup', onMouseUp)
   }
+
+  // Left/right splitter between the modules pane and the filmstrip pane.
+  const bottomSplitWidthRef = useRef(bottomSplitWidth)
+  bottomSplitWidthRef.current = bottomSplitWidth
+  const bottomDockSwapRef = useRef(bottomDockSwap)
+  bottomDockSwapRef.current = bottomDockSwap
+
+  const startBottomHorizontalSplitResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const startX = e.clientX
+    const startWidth = bottomSplitWidthRef.current
+    const swapAtStart = bottomDockSwapRef.current
+    document.body.style.userSelect = 'none'
+
+    const onMouseMove = (ev: MouseEvent) => {
+      const deltaX = swapAtStart === 'modules-left' ? ev.clientX - startX : startX - ev.clientX
+      const maxWidth = window.innerWidth - 300
+      const newWidth = Math.max(240, Math.min(maxWidth, startWidth + deltaX))
+      setBottomSplitWidth(newWidth)
+    }
+
+    const onMouseUp = () => {
+      document.body.style.userSelect = ''
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+      setBottomSplitWidth(w => {
+        setReviewStorage('bottom_split_width', String(w))
+        return w
+      })
+    }
+
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+  }, [])
+
+  const handleToggleBottomDockSwap = useCallback(() => {
+    setBottomDockSwap(prev => {
+      const next = prev === 'modules-left' ? 'filmstrip-left' : 'modules-left'
+      setReviewStorage('bottom_dock_swap', next)
+      return next
+    })
+  }, [])
 
   useEffect(() => {
     if (photoId) {
@@ -1901,11 +1964,24 @@ export default function Review() {
           )
         })}
 
-        {/* Unified Bottom Bar: docked modules + filmstrip side-by-side to maximize photo space */}
+        {/* Unified Bottom Dock: modules + filmstrip in one cohesive resizable stage bar */}
         {(showBottomModules || showBottomFilmstrip) && (
+          <div
+            className="bg-neutral-950/95 border-t border-neutral-800 flex flex-col w-full flex-shrink-0 relative"
+            style={{ height: isBottomCollapsed ? undefined : `${bottomBarHeight}px` }}
+          >
+          {/* Unified top resize handle spanning the entire dock */}
+          <div
+            onMouseDown={startResizeBottom}
+            className="h-2 w-full cursor-row-resize hover:bg-blue-500/30 active:bg-blue-500/50 transition-colors flex items-center justify-center group shrink-0 select-none z-30"
+            title="Drag up/down to resize bottom dock height (Double-click to collapse/expand)"
+            onDoubleClick={() => setIsBottomCollapsed(prev => !prev)}
+          >
+            <div className="w-16 h-1 bg-neutral-700/80 rounded-full group-hover:bg-blue-400 group-active:bg-blue-300 transition-colors" />
+          </div>
           <div className={isBottomSideBySide
-            ? "flex flex-row items-stretch w-full gap-2 px-4 pb-2 flex-shrink-0 relative"
-            : "flex flex-col w-full flex-shrink-0 relative"
+            ? "flex flex-row items-stretch w-full gap-2 px-3 pb-2 flex-1 min-h-0"
+            : "flex flex-col w-full px-4 pb-2 flex-1 min-h-0"
           }>
           {showBottomModules && (
           <div
@@ -1929,28 +2005,19 @@ export default function Review() {
                 setModulePlacement(moduleId, 'bottom')
               }
             }}
+            style={isBottomSideBySide ? { width: `${bottomSplitWidth}px` } : undefined}
             className={clsx(
-              isBottomSideBySide
-                ? "w-[380px] max-w-[45%] flex-shrink-0 flex flex-col relative transition-opacity duration-300"
-                : "px-4 pb-2 flex-shrink-0 relative transition-opacity duration-300",
+              "flex flex-col h-full min-h-0 rounded-xl border border-neutral-800 bg-neutral-900/90 shadow-xl overflow-hidden relative transition-opacity duration-300",
+              isBottomSideBySide ? "shrink-0" : "flex-shrink-0",
+              bottomDockSwap === 'modules-left' ? "order-1" : "order-3",
               lightsOutLevel === 1 && "lights-out-dim",
               lightsOutLevel === 2 && "lights-out-blackout pointer-events-none"
             )}
           >
-            {/* Resize Handle at Top of Bottom Stage Bar */}
-            <div
-              onMouseDown={startResizeBottom}
-              className="h-2 w-full cursor-row-resize hover:bg-blue-500/40 transition-colors flex items-center justify-center group -mt-1 mb-1 rounded"
-              title="Drag up/down to resize bottom bar height (Double-click to collapse/expand)"
-              onDoubleClick={() => setIsBottomCollapsed(prev => !prev)}
-            >
-              <div className="w-12 h-1 bg-neutral-700 rounded-full group-hover:bg-blue-400 transition-colors" />
-            </div>
-
             {/* Horizontal Columns Container */}
             <div
               id="bottom-groups-container"
-              className="flex flex-row items-stretch w-full gap-1.5 overflow-hidden"
+              className="flex flex-row items-stretch w-full gap-1.5 overflow-hidden flex-1 min-h-0 p-1.5"
             >
               {bottomGroups.map((group, groupIndex) => {
                 const activeTab = group.tabs.includes(group.activeTab) ? group.activeTab : group.tabs[0] || ''
@@ -2000,7 +2067,7 @@ export default function Review() {
 
                       {/* Header / Tab bar */}
                       <div
-                        className="flex items-center justify-between px-3 py-1 bg-neutral-950/80 border-b border-neutral-800 text-xs select-none cursor-grab active:cursor-grabbing shrink-0"
+                        className="flex items-center justify-between px-3 h-8 bg-neutral-950/80 border-b border-neutral-800 text-xs select-none cursor-grab active:cursor-grabbing shrink-0"
                         onPointerDown={(e) => handleBottomTabPointerDown(activeTab, group.id, e)}
                         onDoubleClick={() => setIsBottomCollapsed(prev => !prev)}
                         title="Drag tab upward to tear off into a floating window | Double-click to collapse/expand"
@@ -2048,6 +2115,16 @@ export default function Review() {
                           className="flex items-center gap-1 flex-shrink-0"
                           onPointerDown={(e) => e.stopPropagation()}
                         >
+                          {/* Swap modules / filmstrip sides */}
+                          {isBottomSideBySide && (
+                            <button
+                              onClick={handleToggleBottomDockSwap}
+                              className="p-1 rounded text-neutral-400 hover:text-blue-300 hover:bg-neutral-800 transition-colors cursor-pointer"
+                              title="Swap sides: modules ↔ filmstrip"
+                            >
+                              <ArrowLeftRight size={12} />
+                            </button>
+                          )}
                           {/* Split Column button */}
                           <button
                             onClick={() => handleSplitBottomGroup(groupIndex, activeTab, 'right')}
@@ -2120,10 +2197,7 @@ export default function Review() {
 
                       {/* Content for this column */}
                       {!isBottomCollapsed && (
-                        <div
-                          className="p-2.5 overflow-y-auto flex-1 min-h-0"
-                          style={{ maxHeight: `${bottomBarHeight}px` }}
-                        >
+                        <div className="p-2 flex-1 min-h-0 overflow-hidden flex flex-col justify-center">
                           {activeTab === 'people' ? (
                             <FaceLoupe
                               photoId={photo.id}
@@ -2174,10 +2248,23 @@ export default function Review() {
             </div>
           </div>
           )}
-          {/* Right: Bottom Filmstrip (takes remaining width when side-by-side) */}
-          {showBottomFilmstrip && (
+          {/* Vertical splitter: drag left/right to resize modules vs filmstrip */}
+          {isBottomSideBySide && !isBottomCollapsed && (
+            <div
+              onMouseDown={startBottomHorizontalSplitResize}
+              className="w-2 hover:w-2.5 -mx-0.5 cursor-col-resize z-20 shrink-0 flex items-center justify-center group/vsplit select-none order-2 self-stretch"
+              title="Drag left/right to resize modules vs filmstrip"
+            >
+              <div className="w-1 h-8 bg-neutral-700/80 rounded-full group-hover/vsplit:bg-blue-400 group-active/vsplit:bg-blue-500 transition-colors" />
+            </div>
+          )}
+          {/* Bottom Filmstrip pane (takes remaining width when side-by-side) */}
+          {showBottomFilmstrip && !isBottomCollapsed && (
             <div className={clsx(
-              isBottomSideBySide ? "flex-1 min-w-0 flex flex-col" : "transition-opacity duration-300",
+              isBottomSideBySide
+                ? "flex-1 min-w-0 h-full min-h-0 flex flex-col overflow-hidden"
+                : "h-full min-h-0 flex flex-col overflow-hidden transition-opacity duration-300",
+              bottomDockSwap === 'modules-left' ? "order-3" : "order-1",
               lightsOutLevel === 1 && "lights-out-dim",
               lightsOutLevel === 2 && "lights-out-blackout pointer-events-none"
             )}>
@@ -2185,15 +2272,23 @@ export default function Review() {
                 photos={photos}
                 currentPhotoId={photo.id}
                 position="bottom"
-                fillHeight={isBottomSideBySide}
+                fillHeight={true}
                 onSelectPhoto={(pid) => navigate(`/review/${pid}`)}
                 onTogglePosition={() => setFilmstripPosition('side')}
                 onSetPosition={setFilmstripPosition}
                 onClose={() => setFilmstripPosition('hidden')}
                 onStartDrag={handleFilmstripStartDrag}
+                onSwapSides={isBottomSideBySide ? handleToggleBottomDockSwap : undefined}
               />
             </div>
           )}
+          {/* Collapsed tab-bar hint */}
+          {isBottomCollapsed && (showBottomModules || showBottomFilmstrip) && (
+            <div className="px-3 pb-1.5 text-[10px] text-neutral-500 select-none">
+              Bottom dock collapsed — double-click the handle above to expand
+            </div>
+          )}
+          </div>
           </div>
         )}
 

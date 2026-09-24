@@ -270,13 +270,13 @@ export const FaceLoupe: React.FC<FaceLoupeProps> = ({
   const isSidebar = layout === 'sidebar'
   const activeFace = (selectedIdx !== null ? faces.find(f => f.index === selectedIdx) : null) || faces[0]
 
-  // Render cards
+  // Render cards (row mode fills the dock height; never clip vertically)
   const faceCards = (
     <div className={clsx(
       "gap-2",
       isSidebar
         ? "grid grid-cols-3 sm:grid-cols-4 gap-2 pt-1"
-        : "flex items-center overflow-x-auto py-1 scrollbar-thin scrollbar-thumb-neutral-700"
+        : "h-full flex items-center overflow-x-auto overflow-y-hidden py-1 scrollbar-thin scrollbar-thumb-neutral-700"
     )}>
       {faces.map((face) => {
         const isSelected = selectedIdx === face.index && zoomLevel > 1
@@ -691,9 +691,8 @@ export const FaceLoupe: React.FC<FaceLoupeProps> = ({
 
   if (hideHeader) {
     return (
-      <div className="select-none py-1">
+      <div className="h-full min-h-0 flex flex-col justify-center overflow-hidden select-none">
         {faceCards}
-        {activeFaceControls}
         {contextMenuPortal}
       </div>
     )

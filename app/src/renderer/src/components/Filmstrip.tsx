@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { CheckCircle2, XCircle, PanelBottom, PanelRight, ChevronDown, ChevronRight, GripVertical, Move, X } from 'lucide-react'
+import { CheckCircle2, XCircle, PanelBottom, PanelRight, ChevronDown, ChevronRight, GripVertical, Move, X, ArrowLeftRight } from 'lucide-react'
 import clsx from 'clsx'
 import { api } from '../api/client'
 import { preloadAndDecodeImage } from '../utils/imagePreloader'
@@ -18,6 +18,8 @@ interface FilmstripProps {
   /** When true, fills the unified side-by-side bottom bar height instead of a fixed h-28. */
   fillHeight?: boolean
   onStartDrag?: (e: React.PointerEvent) => void
+  /** Swap modules / filmstrip sides in the unified bottom dock. */
+  onSwapSides?: () => void
 }
 
 function scoreColor(score: number | null): string {
@@ -37,6 +39,7 @@ export default function Filmstrip({
   onClose,
   fillHeight = false,
   onStartDrag,
+  onSwapSides,
 }: FilmstripProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const activeThumbRef = useRef<HTMLButtonElement>(null)
@@ -99,9 +102,9 @@ export default function Filmstrip({
             : 'h-full w-36 border-l flex-shrink-0'
       )}
     >
-      {/* Header toolbar */}
+      {/* Header toolbar (h-8 to match the modules pane headers) */}
       <div
-        className="flex items-center justify-between px-3 py-1 bg-neutral-900/80 border-b border-neutral-800/60 text-[11px] text-neutral-400 select-none relative"
+        className="flex items-center justify-between px-3 h-8 shrink-0 bg-neutral-950/80 border-b border-neutral-800 text-[11px] text-neutral-400 select-none relative"
         onContextMenu={(e) => {
           e.preventDefault()
           e.stopPropagation()
@@ -123,6 +126,15 @@ export default function Filmstrip({
           </span>
         </div>
         <div className="flex items-center gap-1">
+          {onSwapSides && (
+            <button
+              onClick={onSwapSides}
+              className="p-1 hover:text-white rounded hover:bg-neutral-800 transition-colors cursor-pointer"
+              title="Swap sides: filmstrip ↔ modules"
+            >
+              <ArrowLeftRight size={13} />
+            </button>
+          )}
           {!isFloating && (
             <button
               onClick={() => setPos('floating')}
