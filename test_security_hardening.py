@@ -53,16 +53,15 @@ def test_download_validation():
         updater._validate_download_params,
         "http://github.com/owner/repo/x.dmg", "x.dmg", label="http scheme",
     )
-    # path traversal via asset name is sanitized by basename into UPDATES_DIR
-    confined = updater._validate_download_params(good, "../evil.dmg")
-    assert confined.name == "evil.dmg"
-    assert str(confined).startswith(str(updater.UPDATES_DIR.resolve()))
-    # bare ".." and backslash tricks are rejected
+    # path traversal tricks with .. or path separators are strictly rejected
     _expect_http400(
-        updater._validate_download_params, good, "..", label="dotdot",
+        updater._validate_download_params, good, "../evil.dmg", label="dotdot slash",
     )
     _expect_http400(
         updater._validate_download_params, good, "..\\evil.dmg", label="backslash",
+    )
+    _expect_http400(
+        updater._validate_download_params, good, "..", label="dotdot",
     )
     # disallowed extension
     _expect_http400(

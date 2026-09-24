@@ -36,8 +36,10 @@ def _validate_download_params(download_url: str, asset_name: str) -> Path:
         raise HTTPException(status_code=400, detail="Invalid request parameters")
     if parsed.scheme != "https" or parsed.netloc not in ALLOWED_DOWNLOAD_HOSTS:
         raise HTTPException(status_code=400, detail="Invalid request parameters")
+    if not asset_name or ".." in asset_name or "/" in asset_name or "\\" in asset_name:
+        raise HTTPException(status_code=400, detail="Invalid request parameters")
     clean_name = os.path.basename(asset_name)
-    if not clean_name or ".." in clean_name or "/" in clean_name or "\\" in clean_name:
+    if not clean_name:
         raise HTTPException(status_code=400, detail="Invalid request parameters")
     if not clean_name.endswith(ALLOWED_DOWNLOAD_EXTENSIONS):
         raise HTTPException(status_code=400, detail="Invalid request parameters")
