@@ -16,6 +16,7 @@ interface InfoOverlayProps {
   totalPhotos?: number
   hudMode: HudMode
   onCycleHud?: () => void
+  onClose?: () => void
   position?: HudPosition
   onPositionChange?: (pos: HudPosition) => void
 }
@@ -70,6 +71,7 @@ export default function InfoOverlay({
   totalPhotos,
   hudMode,
   onCycleHud,
+  onClose,
   position: propPosition,
   onPositionChange
 }: InfoOverlayProps) {
@@ -190,6 +192,19 @@ export default function InfoOverlay({
             >
               <RotateCw size={9} />
               <span>{hudMode}/2</span>
+            </button>
+          )}
+          {onClose && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                onClose()
+              }}
+              className="p-0.5 rounded hover:bg-neutral-800 text-neutral-500 hover:text-rose-400 transition-colors cursor-pointer"
+              title="Close HUD (Press 'I' to re-open)"
+            >
+              <X size={10} />
             </button>
           )}
         </div>

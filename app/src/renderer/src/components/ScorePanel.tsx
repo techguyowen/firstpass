@@ -62,6 +62,7 @@ export interface ScorePanelProps {
   onSetModulePlacement?: (id: string, placement: PanelDockPlacement, floatPos?: { x: number; y: number }) => void
   triagePlacement?: TriagePlacement
   onSetTriagePlacement?: (placement: TriagePlacement) => void
+  cullingBarVisible?: boolean
   onStatus?: (status: 'accepted' | 'rejected' | 'pending') => void
   onToggleTag?: () => void
 }
@@ -250,6 +251,7 @@ export default function ScorePanel({
   onSetModulePlacement,
   triagePlacement,
   onSetTriagePlacement,
+  cullingBarVisible = true,
   onStatus,
   onToggleTag,
 }: ScorePanelProps) {
@@ -1032,19 +1034,22 @@ export default function ScorePanel({
   )
 
   // Box: Culling Action Bar (Triage buttons)
-  const renderCullingBox = () => (
-    <div className="py-1">
-      <CullingActionBar
-        status={photo.status}
-        isTagged={Boolean(photo.is_tagged)}
-        onStatus={onStatus || ((st) => setPhotoStatusWithUndo(photo.id, st))}
-        onToggleTag={onToggleTag || (() => togglePhotoTag(photo.id))}
-        placement="sidebar"
-        onSetPlacement={onSetTriagePlacement}
-        scale="standard"
-      />
-    </div>
-  )
+  const renderCullingBox = () => {
+    if (!cullingBarVisible) return null
+    return (
+      <div className="py-1">
+        <CullingActionBar
+          status={photo.status}
+          isTagged={Boolean(photo.is_tagged)}
+          onStatus={onStatus || ((st) => setPhotoStatusWithUndo(photo.id, st))}
+          onToggleTag={onToggleTag || (() => togglePhotoTag(photo.id))}
+          placement="sidebar"
+          onSetPlacement={onSetTriagePlacement}
+          scale="standard"
+        />
+      </div>
+    )
+  }
 
   const MODULE_RENDERERS: Record<string, () => React.ReactNode> = {
     culling: renderCullingBox,
@@ -1266,7 +1271,7 @@ export default function ScorePanel({
       )}
 
       {/* Pinned Culling Action Bar (When in Sidebar Placement) */}
-      {triagePlacement === 'sidebar' && (
+      {cullingBarVisible && triagePlacement === 'sidebar' && (
         <div className="mb-2 pb-2 border-b border-neutral-800 shrink-0">
           <CullingActionBar
             status={photo.status}
@@ -1706,6 +1711,7 @@ export function InspectorModuleContent({
   onSelectFace,
   onResetZoom,
   zoomLevel = 1,
+  cullingBarVisible = true,
 }: {
   moduleId: string
   photo: Photo
@@ -1713,6 +1719,7 @@ export function InspectorModuleContent({
   onSelectFace?: (box: [number, number, number, number]) => void
   onResetZoom?: () => void
   zoomLevel?: number
+  cullingBarVisible?: boolean
 }) {
   const { startAnalysis, isAnalyzing } = usePhotosStore()
   const isShakeRisk = checkCameraShake(photo.shutter_speed, photo.focal_length)
@@ -1725,6 +1732,7 @@ export function InspectorModuleContent({
   } catch {}
 
   if (moduleId === 'culling') {
+    if (!cullingBarVisible) return null
     return (
       <div className="py-1">
         <CullingActionBar

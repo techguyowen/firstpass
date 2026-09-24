@@ -366,6 +366,23 @@ export default function Gallery() {
         case 'open-export':
           setShowExportModal(true)
           break
+        case 'quick-export':
+          setShowExportModal(true)
+          break
+        case 'auto-pick-duplicates': {
+          toast('Auto-picking best duplicates...', { icon: '🏆', id: 'auto-pick-toast' })
+          try {
+            const res = await api.autoPickDuplicates()
+            if (res && res.success) {
+              toast.success(`Auto-pick complete: ${res.accepted} accepted, ${res.rejected} rejected (${res.groups_processed} groups)`, { id: 'auto-pick-toast' })
+            } else {
+              toast.error('Auto-pick failed', { id: 'auto-pick-toast' })
+            }
+          } catch {
+            toast.error('Auto-pick failed', { id: 'auto-pick-toast' })
+          }
+          break
+        }
         case 'open-delivery-target':
           setShowDeliveryModal(true)
           break

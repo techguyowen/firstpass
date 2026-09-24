@@ -24,7 +24,13 @@ export interface WorkspaceLayout {
   hudMode: HudMode
   hudPosition: { x: number; y: number }
   modulesOrder: string[]
-  canvasBackdrop: CanvasBackdropMode
+  /**
+   * Legacy canvas backdrop snapshot. Workspaces govern item locations,
+   * geometry, and layout ONLY — this field is never applied when switching
+   * workspaces and is ignored on save. Themes own all colors. Kept optional
+   * so workspaces saved by older versions still parse.
+   */
+  canvasBackdrop?: CanvasBackdropMode
   modulePlacements?: Record<string, 'sidebar' | 'bottom' | 'floating' | 'hidden'>
 }
 
@@ -42,7 +48,6 @@ export const PRESET_WORKSPACES: WorkspaceLayout[] = [
     hudMode: 1,
     hudPosition: { x: 20, y: 20 },
     modulesOrder: ['histogram', 'overall', 'reasons', 'quality', 'people', 'context', 'camera', 'file'],
-    canvasBackdrop: 'dark',
   },
   {
     id: 'speed-triage',
@@ -57,7 +62,6 @@ export const PRESET_WORKSPACES: WorkspaceLayout[] = [
     hudMode: 1,
     hudPosition: { x: 20, y: 20 },
     modulesOrder: ['overall', 'reasons', 'quality', 'people', 'context', 'camera', 'file'],
-    canvasBackdrop: 'black',
   },
   {
     id: 'focus-inspection',
@@ -72,7 +76,6 @@ export const PRESET_WORKSPACES: WorkspaceLayout[] = [
     hudMode: 2,
     hudPosition: { x: 20, y: 20 },
     modulesOrder: ['people', 'histogram', 'quality', 'overall', 'reasons', 'context', 'camera', 'file'],
-    canvasBackdrop: 'neutral',
   },
   {
     id: 'technical-exif',
@@ -87,7 +90,6 @@ export const PRESET_WORKSPACES: WorkspaceLayout[] = [
     hudMode: 2,
     hudPosition: { x: 380, y: 20 },
     modulesOrder: ['camera', 'histogram', 'quality', 'file', 'overall', 'reasons', 'people', 'context'],
-    canvasBackdrop: 'dark',
   }
 ]
 
@@ -96,12 +98,21 @@ const LEGACY_STORAGE_KEY_WORKSPACES = 'photo_culler_custom_workspaces'
 const STORAGE_KEY_ACTIVE_ID = 'firstpass_active_workspace_id'
 const LEGACY_STORAGE_KEY_ACTIVE_ID = 'photo_culler_active_workspace_id'
 
+function stripBackdrop(layout: WorkspaceLayout): WorkspaceLayout {
+  if (!layout || typeof layout !== 'object') return layout
+  const { canvasBackdrop: _ignored, ...rest } = layout as WorkspaceLayout & { canvasBackdrop?: unknown }
+  void _ignored
+  return rest as WorkspaceLayout
+}
+
 export function getCustomWorkspaces(): WorkspaceLayout[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_WORKSPACES) || localStorage.getItem(LEGACY_STORAGE_KEY_WORKSPACES)
     if (raw) {
       const parsed = JSON.parse(raw)
-      if (Array.isArray(parsed)) return parsed
+      // Strip any legacy canvasBackdrop snapshots: custom workspaces are
+      // layout-only and must never touch theme or canvas backdrop colors.
+      if (Array.isArray(parsed)) return parsed.map(stripBackdrop)
     }
   } catch {}
   return []
@@ -131,8 +142,11 @@ export function setActiveWorkspaceId(id: string): void {
 
 export function saveCustomWorkspace(name: string, currentLayout: Omit<WorkspaceLayout, 'id' | 'name' | 'isPreset'>): WorkspaceLayout {
   const id = `workspace-${Date.now()}`
+  // Layout-only: never persist theme or canvas backdrop colors with a workspace.
+  const { canvasBackdrop: _ignored, ...layoutOnly } = currentLayout as Omit<WorkspaceLayout, 'id' | 'name' | 'isPreset'> & { canvasBackdrop?: unknown }
+  void _ignored
   const newWorkspace: WorkspaceLayout = {
-    ...currentLayout,
+    ...layoutOnly,
     id,
     name: name.trim() || 'Custom Workspace',
     isPreset: false,

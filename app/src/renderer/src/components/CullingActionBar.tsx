@@ -135,6 +135,25 @@ export default function CullingActionBar({
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [menuAnchor])
 
+  // Recenter the floating island on screen (native menu: Window > Culling Action Bar > Center on Screen)
+  useEffect(() => {
+    const onCenter = (e: Event) => {
+      const detail = (e as CustomEvent).detail || {}
+      const fallbackX = Math.round(window.innerWidth / 2 - 180)
+      const fallbackY = Math.round(window.innerHeight / 2 - 40)
+      const next = {
+        x: Math.min(window.innerWidth - 200, Math.max(10, typeof detail.x === 'number' ? detail.x : fallbackX)),
+        y: Math.min(window.innerHeight - 80, Math.max(10, typeof detail.y === 'number' ? detail.y : fallbackY)),
+      }
+      setFloatPos(next)
+      try {
+        localStorage.setItem('photo_culler_triage_hud_pos', JSON.stringify(next))
+      } catch {}
+    }
+    window.addEventListener('triage:center', onCenter)
+    return () => window.removeEventListener('triage:center', onCenter)
+  }, [])
+
   const handleUpdatePlacement = (newPlacement: TriagePlacement) => {
     setPlacement(newPlacement)
     try {

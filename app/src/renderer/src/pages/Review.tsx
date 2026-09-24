@@ -2,10 +2,10 @@ import React, { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, ArrowRight, Check, X, SkipForward, Maximize2, RefreshCw,
-  Zap, PanelBottom, Sun, Activity, Columns, Sliders, PanelLeft, PanelRight,
-  Palette, Moon, Info, ChevronDown, Users, SlidersHorizontal, RotateCcw, Sparkles,
+  Zap, Eye, Columns, Sliders, PanelLeft, PanelRight, PanelBottom,
+  Palette, Moon, Info, ChevronDown, SlidersHorizontal, RotateCcw, Sparkles,
   ChevronsRight, ChevronsLeft, Anchor, GripVertical, Minus, Square, MoreHorizontal,
-  ExternalLink, Pin, Crown, Split, Film, ArrowLeftRight
+  ExternalLink, Pin, Crown, Split, Film, ArrowLeftRight, LayoutGrid
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '../api/client'
@@ -25,6 +25,7 @@ import ClippingOverlay from '../components/ClippingOverlay'
 import HistogramWidget, { HistogramChart } from '../components/HistogramWidget'
 import DraggablePanel from '../components/DraggablePanel'
 import ThemePickerModal from '../components/ThemePickerModal'
+import PanelSelectorModal, { PanelKey } from '../components/PanelSelectorModal'
 import InfoOverlay, { HudMode } from '../components/InfoOverlay'
 import CullingActionBar, { TriagePlacement, TriageScale } from '../components/CullingActionBar'
 import DragGhostOverlay from '../components/DragGhostOverlay'
@@ -236,6 +237,23 @@ export default function Review() {
     return 'standard'
   })
 
+  // Culling Action Bar visibility (Adobe-style show/hide, independent of placement)
+  const [showCullingBar, setShowCullingBar] = useState<boolean>(() => {
+    try {
+      const saved = getReviewStorage('culling_bar_visible')
+      if (saved === 'false') return false
+    } catch {}
+    return true
+  })
+
+  const setShowCullingBarAndStore = useCallback((visible: boolean) => {
+    setShowCullingBar(visible)
+    setReviewStorage('culling_bar_visible', String(visible))
+  }, [])
+
+  // Adobe-style Panel Selector (Window > Customize Panels...)
+  const [showPanelSelector, setShowPanelSelector] = useState(false)
+
   const toggleScorePanel = useCallback(() => {
     setScorePanelDockState(prev => {
       const next = prev === 'collapsed' ? (lastActiveDockRef.current || 'right') : 'collapsed'
@@ -379,6 +397,7 @@ export default function Review() {
   const [workspaces, setWorkspaces] = useState<WorkspaceLayout[]>(getAllWorkspaces)
   const [activeWorkspaceId, setActiveWorkspaceIdState] = useState<string>(getActiveWorkspaceId)
   const [workspacesMenuAnchor, setWorkspacesMenuAnchor] = useState<{ x: number; y: number } | null>(null)
+  const [viewOptionsAnchor, setViewOptionsAnchor] = useState<{ x: number; y: number } | null>(null)
   const [showSaveWorkspaceModal, setShowSaveWorkspaceModal] = useState(false)
   const [newWorkspaceName, setNewWorkspaceName] = useState('')
   const [activeDropZone, setActiveDropZone] = useState<'sidebar' | 'bottom' | null>(null)
@@ -450,6 +469,19 @@ export default function Review() {
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [workspacesMenuAnchor])
+
+  // Close the View Options popover on Escape (capture phase so global shortcuts don't fire first)
+  useEffect(() => {
+    if (!viewOptionsAnchor) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        setViewOptionsAnchor(null)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [viewOptionsAnchor])
 
   const handleSelectBottomTab = useCallback((groupId: string, tabId: string) => {
     setBottomGroups(prev => {
@@ -709,6 +741,9 @@ export default function Review() {
   const activeWorkspace = workspaces.find(w => w.id === activeWorkspaceId) || PRESET_WORKSPACES[0]
   const customWorkspaces = workspaces.filter(w => !w.isPreset)
 
+  // Workspaces govern item locations, geometry, and layout ONLY — panel
+  // placements, dock sizes, sidebar widths. They never touch theme colors or
+  // the canvas backdrop (those belong to Studio Themes).
   const applyWorkspace = useCallback((workspace: WorkspaceLayout) => {
     setScorePanelDock(workspace.scorePanelDock)
     setScorePanelWidth(workspace.scorePanelWidth)
@@ -728,11 +763,10 @@ export default function Review() {
         setReviewStorage('module_placements', JSON.stringify(workspace.modulePlacements))
       }
     } catch {}
-    setCanvasBackdrop(workspace.canvasBackdrop)
     setActiveWorkspaceId(workspace.id)
     setActiveWorkspaceIdState(workspace.id)
     toast.success(`Switched to "${workspace.name}" layout`, { icon: '📐' })
-  }, [setScorePanelDock, setFaceLoupeModeAndStore, setHistogramModeAndStore, setFilmstripPosition, setCanvasBackdrop])
+  }, [setScorePanelDock, setFaceLoupeModeAndStore, setHistogramModeAndStore, setFilmstripPosition])
 
   const handleSaveCurrentWorkspace = useCallback(() => {
     if (!newWorkspaceName.trim()) {
@@ -752,6 +786,7 @@ export default function Review() {
       if (savedOrder) modulesOrder = JSON.parse(savedOrder)
     } catch {}
 
+    // Layout-only snapshot: workspaces never capture theme or canvas backdrop.
     const saved = saveCustomWorkspace(newWorkspaceName.trim(), {
       scorePanelDock,
       scorePanelWidth,
@@ -761,7 +796,6 @@ export default function Review() {
       hudMode,
       hudPosition,
       modulesOrder,
-      canvasBackdrop,
       modulePlacements
     })
 
@@ -772,7 +806,7 @@ export default function Review() {
     setShowSaveWorkspaceModal(false)
     setNewWorkspaceName('')
     toast.success(`Saved custom workspace "${saved.name}"!`)
-  }, [newWorkspaceName, scorePanelDock, scorePanelWidth, faceLoupeMode, histogramMode, filmstripPosition, hudMode, canvasBackdrop, modulePlacements])
+  }, [newWorkspaceName, scorePanelDock, scorePanelWidth, faceLoupeMode, histogramMode, filmstripPosition, hudMode, modulePlacements])
 
   const handleDeleteCustomWorkspace = useCallback((id: string) => {
     deleteCustomWorkspace(id)
@@ -783,6 +817,95 @@ export default function Review() {
     }
     toast('Workspace removed', { icon: '🗑️' })
   }, [activeWorkspaceId, applyWorkspace])
+
+  // Remember the last visible filmstrip placement so show/hide restores it
+  const lastFilmstripRef = useRef(filmstripPosition)
+  useEffect(() => {
+    if (filmstripPosition !== 'hidden') lastFilmstripRef.current = filmstripPosition
+  }, [filmstripPosition])
+
+  // Adobe-style per-panel show/hide. Toggles visibility in real time without
+  // touching layout geometry, theme colors, or the canvas backdrop.
+  const togglePanelVisibility = useCallback((key: PanelKey) => {
+    switch (key) {
+      case 'filmstrip':
+        setFilmstripPosition(filmstripPosition === 'hidden' ? lastFilmstripRef.current : 'hidden')
+        break
+      case 'cullingBar':
+        setShowCullingBarAndStore(!showCullingBar)
+        break
+      case 'inspector':
+        toggleScorePanel()
+        break
+      case 'hud': {
+        const next = (hudMode > 0 ? 0 : 1) as HudMode
+        setHudMode(next)
+        setReviewStorage('hud_mode', String(next))
+        break
+      }
+      case 'histogram':
+        setHistogramModeAndStore(histogramMode === 'hidden' ? 'sidebar' : 'hidden')
+        break
+      case 'faceLoupe':
+        setFaceLoupeModeAndStore(faceLoupeMode === 'hidden' ? 'bottom' : 'hidden')
+        break
+      case 'bottomDock':
+        setIsBottomCollapsed(prev => !prev)
+        break
+      case 'quality':
+      case 'camera':
+      case 'reasons': {
+        const moduleId = key
+        setModulePlacement(moduleId, modulePlacements[moduleId] === 'hidden' ? 'sidebar' : 'hidden')
+        break
+      }
+    }
+  }, [filmstripPosition, setFilmstripPosition, showCullingBar, setShowCullingBarAndStore, toggleScorePanel, hudMode, histogramMode, setHistogramModeAndStore, faceLoupeMode, setFaceLoupeModeAndStore, modulePlacements, setModulePlacement])
+
+  const showAllPanels = useCallback(() => {
+    if (filmstripPosition === 'hidden') setFilmstripPosition(lastFilmstripRef.current)
+    if (!showCullingBar) setShowCullingBarAndStore(true)
+    if (scorePanelDock === 'collapsed') setScorePanelDock(lastActiveDockRef.current || 'right')
+    if (hudMode === 0) {
+      setHudMode(1)
+      setReviewStorage('hud_mode', '1')
+    }
+    if (histogramMode === 'hidden') setHistogramModeAndStore('sidebar')
+    if (faceLoupeMode === 'hidden') setFaceLoupeModeAndStore('bottom')
+    setIsBottomCollapsed(false)
+    ;(['quality', 'camera', 'reasons'] as const).forEach((moduleId) => {
+      if (modulePlacements[moduleId] === 'hidden') setModulePlacement(moduleId, 'sidebar')
+    })
+    toast.success('All panels shown', { id: 'panels-toast' })
+  }, [filmstripPosition, setFilmstripPosition, showCullingBar, setShowCullingBarAndStore, scorePanelDock, setScorePanelDock, hudMode, histogramMode, setHistogramModeAndStore, faceLoupeMode, setFaceLoupeModeAndStore, modulePlacements, setModulePlacement])
+
+  const resetDefaultPanels = useCallback(() => {
+    setFilmstripPosition('bottom')
+    setShowCullingBarAndStore(true)
+    setScorePanelDock('right')
+    setHudMode(1)
+    setReviewStorage('hud_mode', '1')
+    setHistogramModeAndStore('sidebar')
+    setFaceLoupeModeAndStore('bottom')
+    setIsBottomCollapsed(false)
+    ;(['quality', 'camera', 'reasons'] as const).forEach((moduleId) => {
+      setModulePlacement(moduleId, DEFAULT_MODULE_PLACEMENTS[moduleId] || 'sidebar')
+    })
+    toast.success('Panels reset to default', { id: 'panels-toast' })
+  }, [setFilmstripPosition, setShowCullingBarAndStore, setScorePanelDock, setHistogramModeAndStore, setFaceLoupeModeAndStore, setModulePlacement])
+
+  const panelSelectorItems = [
+    { key: 'filmstrip' as PanelKey, label: 'Filmstrip', description: filmstripPosition === 'hidden' ? 'Hidden' : `Docked: ${filmstripPosition}`, visible: filmstripPosition !== 'hidden' },
+    { key: 'cullingBar' as PanelKey, label: 'Culling Action Bar', description: 'Accept / reject / tag controls', visible: showCullingBar },
+    { key: 'inspector' as PanelKey, label: 'Inspector Sidebar', description: scorePanelDock === 'collapsed' ? 'Collapsed' : `Docked: ${scorePanelDock}`, visible: scorePanelDock !== 'collapsed' },
+    { key: 'hud' as PanelKey, label: 'Photographic Info HUD', description: hudMode === 0 ? 'Off' : hudMode === 1 ? 'Triage summary' : 'Shooting EXIF', visible: hudMode > 0 },
+    { key: 'histogram' as PanelKey, label: 'RGB & Luminance Histogram', description: histogramMode === 'hidden' ? 'Hidden' : `Docked: ${histogramMode}`, visible: histogramMode !== 'hidden' },
+    { key: 'faceLoupe' as PanelKey, label: 'Face Loupe', description: faceLoupeMode === 'hidden' ? 'Hidden' : `Docked: ${faceLoupeMode}`, visible: faceLoupeMode !== 'hidden' },
+    { key: 'bottomDock' as PanelKey, label: 'Bottom Dock', description: isBottomCollapsed ? 'Collapsed' : 'Expanded', visible: !isBottomCollapsed },
+    { key: 'quality' as PanelKey, label: 'Quality Metrics Module', description: `Placement: ${modulePlacements.quality || 'sidebar'}`, visible: modulePlacements.quality !== 'hidden' },
+    { key: 'camera' as PanelKey, label: 'Camera EXIF Module', description: `Placement: ${modulePlacements.camera || 'sidebar'}`, visible: modulePlacements.camera !== 'hidden' },
+    { key: 'reasons' as PanelKey, label: 'AI Reasons Module', description: `Placement: ${modulePlacements.reasons || 'sidebar'}`, visible: modulePlacements.reasons !== 'hidden' },
+  ]
 
   // Drag-to-resize sidebar handlers (with multi-state snapping)
   const startResizeRight = (e: React.MouseEvent) => {
@@ -1230,6 +1353,60 @@ export default function Review() {
         case 'cycle-hud':
           cycleHud()
           break
+        case 'toggle-hud':
+          cycleHud()
+          break
+        case 'close-hud':
+          setHudMode(0)
+          setReviewStorage('hud_mode', '0')
+          break
+        case 'next-photo':
+          if (nextPhoto) navigate(`/review/${nextPhoto.id}`)
+          break
+        case 'prev-photo':
+          if (prevPhoto) navigate(`/review/${prevPhoto.id}`)
+          break
+        case 'first-photo':
+          if (photos.length > 0) navigate(`/review/${photos[0].id}`)
+          break
+        case 'last-photo':
+          if (photos.length > 0) navigate(`/review/${photos[photos.length - 1].id}`)
+          break
+        case 'zoom-in':
+          setZoomLevel(prev => Math.min(3, prev + 0.5))
+          break
+        case 'zoom-out':
+          setZoomLevel(prev => Math.max(1, prev - 0.5))
+          break
+        case 'zoom-100':
+          setZoomLevel(1)
+          break
+        case 'zoom-200':
+          setZoomLevel(2)
+          break
+        case 'toggle-fullscreen':
+          setFullscreen(prev => !prev)
+          break
+        case 'toggle-bottom-dock':
+          setIsBottomCollapsed(prev => !prev)
+          break
+        case 'toggle-bottom-split':
+          handleToggleBottomDockSwap()
+          break
+        case 'reset-bottom-split':
+          handleResetBottomSplitWidth()
+          break
+        case 'set-triage':
+          if (payload === 'bottom' || payload === 'floating') setTriagePlacement(payload)
+          break
+        case 'center-culling-bar': {
+          if (triagePlacement !== 'floating') setTriagePlacement('floating')
+          const cx = Math.round(window.innerWidth / 2 - 180)
+          const cy = Math.round(window.innerHeight / 2 - 40)
+          setReviewStorage('triage_hud_pos', JSON.stringify({ x: cx, y: cy }))
+          window.dispatchEvent(new CustomEvent('triage:center', { detail: { x: cx, y: cy } }))
+          break
+        }
         case 'set-backdrop':
           if (payload) setCanvasBackdrop(payload as CanvasBackdropMode)
           break
@@ -1263,6 +1440,24 @@ export default function Review() {
           break
         case 'toggle-inspector':
           toggleScorePanel()
+          break
+        case 'open-panel-selector':
+          setShowPanelSelector(true)
+          break
+        case 'toggle-filmstrip-visibility':
+          togglePanelVisibility('filmstrip')
+          break
+        case 'toggle-culling-bar':
+          togglePanelVisibility('cullingBar')
+          break
+        case 'toggle-hud-visibility':
+          togglePanelVisibility('hud')
+          break
+        case 'toggle-histogram-visibility':
+          togglePanelVisibility('histogram')
+          break
+        case 'toggle-faceloupe-visibility':
+          togglePanelVisibility('faceLoupe')
           break
         case 'set-filmstrip':
           if (payload) setFilmstripPosition(payload)
@@ -1302,7 +1497,7 @@ export default function Review() {
 
     window.addEventListener('app:menu-action', handleAppMenuAction)
     return () => window.removeEventListener('app:menu-action', handleAppMenuAction)
-  }, [cycleLightsOut, cycleHud, setCanvasBackdrop, toggleScorePanel, filmstripPosition, setFilmstripPosition, handleReanalyze, handleStatus, photo, togglePhotoTag, handleToggleZoom, lightsOutLevel, cycleHistogram, setHistogramModeAndStore, workspaces, applyWorkspace])
+  }, [cycleLightsOut, cycleHud, setCanvasBackdrop, toggleScorePanel, filmstripPosition, setFilmstripPosition, handleReanalyze, handleStatus, photo, togglePhotoTag, handleToggleZoom, lightsOutLevel, cycleHistogram, setHistogramModeAndStore, workspaces, applyWorkspace, navigate, nextPhoto, prevPhoto, photos, triagePlacement, handleToggleBottomDockSwap, handleResetBottomSplitWidth, togglePanelVisibility])
 
   // Sync menu state with Review tool settings
   useEffect(() => {
@@ -1313,11 +1508,14 @@ export default function Review() {
       showClipping,
       showHistogram: histogramMode !== 'hidden',
       histogramMode,
+      faceLoupeMode,
       inspectorOpen: scorePanelDock !== 'collapsed',
       filmstripPosition,
+      showCullingBar,
+      isBottomCollapsed,
       activeWorkspace: activeWorkspaceId
     })
-  }, [lightsOutLevel, hudMode, canvasBackdrop, showClipping, histogramMode, scorePanelDock, filmstripPosition, activeWorkspaceId])
+  }, [lightsOutLevel, hudMode, canvasBackdrop, showClipping, histogramMode, faceLoupeMode, scorePanelDock, filmstripPosition, showCullingBar, isBottomCollapsed, activeWorkspaceId])
 
   if (loading) {
     return (
@@ -1480,6 +1678,7 @@ export default function Review() {
             onSetModulePlacement={setModulePlacement}
             triagePlacement={triagePlacement}
             onSetTriagePlacement={setTriagePlacement}
+            cullingBarVisible={showCullingBar}
             onStatus={handleStatus}
             onToggleTag={() => photo && togglePhotoTag(photo.id)}
           />
@@ -1500,31 +1699,34 @@ export default function Review() {
           lightsOutLevel === 1 && "lights-out-dim",
           lightsOutLevel === 2 && "lights-out-blackout pointer-events-none"
         )}>
-          {/* LEFT GROUP: Navigation & Filename */}
+          {/* LEFT ZONE: Document & Navigation */}
           <div className="flex items-center gap-2 shrink-0 min-w-0">
             <button
               onClick={() => navigate('/')}
               className="flex items-center gap-1 text-neutral-300 hover:text-white transition-colors cursor-pointer px-2 py-1 rounded-lg bg-neutral-800/80 hover:bg-neutral-700 border border-neutral-700/60 text-xs font-medium shrink-0"
+              title="Back to Gallery (Esc)"
             >
               <ArrowLeft size={13} />
               <span>Gallery</span>
             </button>
 
-            {/* Re-analyze AI button */}
-            <button
-              onClick={handleReanalyze}
-              disabled={isReanalyzing || !photo}
-              className="flex items-center gap-1 px-2 py-1 text-xs rounded-lg border border-neutral-700/70 bg-neutral-800/80 hover:bg-neutral-700 text-neutral-300 hover:text-white disabled:opacity-40 transition-colors cursor-pointer shrink-0"
-              title="Re-run AI analysis on this photo"
-            >
-              <RefreshCw size={11} className={isReanalyzing ? 'animate-spin text-purple-400' : 'text-purple-400'} />
-              <span className="hidden sm:inline">{isReanalyzing ? 'Analyzing…' : 'Re-analyze'}</span>
-            </button>
+            <div className="w-px h-5 bg-neutral-700/60 shrink-0" />
 
-            {/* Filename & Counter */}
+            {/* Filename, status & counter */}
             <div className="flex items-center gap-1.5 min-w-0">
               <span className="text-white text-xs font-semibold truncate max-w-[90px] sm:max-w-[130px] md:max-w-[180px]" title={photo.filename}>
                 {photo.filename}
+              </span>
+              <span
+                className={clsx(
+                  'shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide border',
+                  photo.status === 'accepted' && 'bg-emerald-500/15 text-emerald-300 border-emerald-500/50',
+                  photo.status === 'rejected' && 'bg-rose-500/15 text-rose-300 border-rose-500/50',
+                  photo.status === 'pending' && 'bg-neutral-800 text-neutral-400 border-neutral-700/60'
+                )}
+                title={`Status: ${photo.status}`}
+              >
+                {photo.status}
               </span>
               {currentIndex >= 0 && (
                 <span className="text-neutral-400 text-[11px] font-mono shrink-0 bg-neutral-800/90 px-1.5 py-0.5 rounded border border-neutral-700/50">
@@ -1532,15 +1734,48 @@ export default function Review() {
                 </span>
               )}
             </div>
+
+            {/* Re-analyze AI (icon-only) */}
+            <button
+              onClick={handleReanalyze}
+              disabled={isReanalyzing || !photo}
+              className="p-1.5 text-xs rounded-lg border border-neutral-800 bg-neutral-900/90 hover:bg-neutral-800 text-neutral-400 hover:text-white disabled:opacity-40 transition-colors cursor-pointer shrink-0"
+              title="Re-analyze this photo with AI (Cmd+R)"
+            >
+              <RefreshCw size={12} className={isReanalyzing ? 'animate-spin text-purple-400' : 'text-neutral-500'} />
+            </button>
           </div>
 
-          {/* CENTER GROUP: Core Triage Controls */}
+          {/* CENTER ZONE: View Modes & Quick Triage */}
           <div className="flex items-center gap-1.5 shrink-0">
+            {/* Segmented view mode toggle */}
+            <div
+              className="flex items-center p-0.5 rounded-lg bg-neutral-800/90 border border-neutral-700/60 shrink-0"
+              title="Review view mode"
+            >
+              <button
+                type="button"
+                className="px-2.5 py-1 text-xs font-semibold rounded-md bg-neutral-700 text-white shadow-sm cursor-default"
+                title="Single photo review (Loupe) — current view"
+              >
+                Loupe
+              </button>
+              <button
+                type="button"
+                onClick={handleOpenCompare}
+                className="flex items-center gap-1 px-2.5 py-1 text-xs rounded-md text-neutral-400 hover:text-white hover:bg-neutral-700/70 transition-colors cursor-pointer"
+                title="Side-by-Side 2-Up Compare (C)"
+              >
+                <Columns size={11} />
+                <span className="hidden md:inline">Compare</span>
+              </button>
+            </div>
+
             {/* Auto-Advance */}
             <button
               onClick={toggleAutoAdvance}
               className={clsx(
-                'flex items-center gap-1 px-2 py-1 text-xs rounded-lg border transition-colors cursor-pointer shrink-0',
+                'flex items-center gap-1 px-2 py-1 text-xs rounded-full border transition-colors cursor-pointer shrink-0',
                 autoAdvance
                   ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-300 font-semibold'
                   : 'border-neutral-800 bg-neutral-900/90 hover:bg-neutral-800 text-neutral-400 hover:text-white'
@@ -1555,7 +1790,7 @@ export default function Review() {
             <button
               onClick={() => photo && togglePhotoTag(photo.id)}
               className={clsx(
-                'flex items-center gap-1 px-2 py-1 text-xs rounded-lg border transition-colors cursor-pointer shrink-0',
+                'flex items-center gap-1 px-2 py-1 text-xs rounded-full border transition-colors cursor-pointer shrink-0',
                 photo?.is_tagged
                   ? 'bg-amber-500/20 border-amber-500/70 text-amber-300 font-bold shadow-sm'
                   : 'border-neutral-800 bg-neutral-900/90 hover:bg-neutral-800 text-neutral-400 hover:text-white'
@@ -1565,113 +1800,23 @@ export default function Review() {
               <span>🏷️</span>
               <span className="hidden lg:inline">{photo?.is_tagged ? 'Tagged' : 'Tag'}</span>
             </button>
-
-            {/* Instant Compare */}
-            <button
-              onClick={handleOpenCompare}
-              className="flex items-center gap-1 px-2 py-1 text-xs rounded-lg border border-neutral-800 bg-neutral-900/90 hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors cursor-pointer shrink-0"
-              title="Instant 2-Up Side-by-Side Compare (C)"
-            >
-              <Columns size={11} className="text-blue-400" />
-              <span className="hidden md:inline">Compare</span>
-            </button>
-
-            {/* Filmstrip Position */}
-            <button
-              onClick={() => {
-                if (filmstripPosition === 'hidden') setFilmstripPosition('bottom')
-                else if (filmstripPosition === 'bottom') setFilmstripPosition('side')
-                else if (filmstripPosition === 'side') setFilmstripPosition('floating')
-                else setFilmstripPosition('hidden')
-              }}
-              className={clsx(
-                'flex items-center gap-1 px-2 py-1 text-xs rounded-lg border transition-colors cursor-pointer shrink-0',
-                filmstripPosition !== 'hidden'
-                  ? 'bg-blue-500/20 border-blue-500/60 text-blue-300 font-semibold'
-                  : 'border-neutral-800 bg-neutral-900/90 hover:bg-neutral-800 text-neutral-400 hover:text-white'
-              )}
-              title={`Filmstrip: ${filmstripPosition} (Click to cycle Bottom / Side / Floating / Hidden) (B)`}
-            >
-              <PanelBottom size={11} />
-              <span className="capitalize hidden lg:inline">{filmstripPosition === 'hidden' ? 'Filmstrip' : filmstripPosition}</span>
-            </button>
           </div>
 
-          {/* RIGHT GROUP: Layout & Workspaces & Studio Tools */}
+          {/* RIGHT ZONE: Consolidated Studio & View Tools */}
           <div className="flex items-center gap-1.5 shrink-0">
-            {/* Workspaces Dropdown (menu rendered fixed at root to avoid overflow clipping) */}
-            <div className="shrink-0">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  if (workspacesMenuAnchor) {
-                    setWorkspacesMenuAnchor(null)
-                  } else {
-                    const rect = e.currentTarget.getBoundingClientRect()
-                    setWorkspacesMenuAnchor({
-                      x: rect.right,
-                      y: rect.bottom,
-                    })
-                  }
-                }}
-                className="flex items-center gap-1.5 px-2 py-1 text-xs rounded-lg border border-neutral-700/80 bg-neutral-800/90 hover:bg-neutral-700 text-neutral-200 hover:text-white transition-colors cursor-pointer shadow-sm"
-                title="Switch or Save Workspaces"
-              >
-                <SlidersHorizontal size={11} className="text-indigo-400" />
-                <span className="font-medium max-w-[90px] sm:max-w-[120px] truncate">
-                  {activeWorkspace?.name || 'Workspace'}
-                </span>
-                <ChevronDown size={10} className="text-neutral-400" />
-              </button>
-            </div>
-
-            {/* Exposure Clipping (E) */}
+            {/* Info HUD (I) */}
             <button
-              onClick={() => setShowClipping(prev => !prev)}
+              onClick={cycleHud}
               className={clsx(
-                'p-1.5 text-xs rounded-lg border transition-colors cursor-pointer shrink-0',
-                showClipping
-                  ? 'bg-rose-500/20 border-rose-500/70 text-rose-300 font-semibold'
+                'flex items-center gap-1 px-2 py-1 text-xs rounded-lg border transition-colors cursor-pointer shrink-0',
+                hudMode > 0
+                  ? 'bg-cyan-500/20 border-cyan-500/70 text-cyan-300 font-semibold'
                   : 'border-neutral-800 bg-neutral-900/90 hover:bg-neutral-800 text-neutral-400 hover:text-white'
               )}
-              title="Toggle Exposure Clipping Overlay (E)"
+              title="Cycle Photographic Info HUD: Triage / EXIF / Off (I)"
             >
-              <Sun size={12} className={showClipping ? 'text-rose-400' : 'text-neutral-500'} />
-            </button>
-
-            {/* Histogram Mode (H) */}
-            <button
-              onClick={cycleHistogram}
-              className={clsx(
-                'flex items-center gap-1 p-1.5 text-xs rounded-lg border transition-colors cursor-pointer shrink-0',
-                histogramMode !== 'hidden'
-                  ? 'bg-purple-500/20 border-purple-500/70 text-purple-300 font-semibold'
-                  : 'border-neutral-800 bg-neutral-900/90 hover:bg-neutral-800 text-neutral-400 hover:text-white'
-              )}
-              title={`Histogram: ${histogramMode} (Click to cycle Sidebar / Floating / Hidden) (H)`}
-            >
-              <Activity size={12} className={histogramMode !== 'hidden' ? 'text-purple-400' : 'text-neutral-500'} />
-              <span className="capitalize hidden 2xl:inline text-xs">Histogram</span>
-            </button>
-
-            {/* Face Loupe Mode */}
-            <button
-              onClick={() => {
-                if (faceLoupeMode === 'sidebar') setFaceLoupeModeAndStore('bottom')
-                else if (faceLoupeMode === 'bottom') setFaceLoupeModeAndStore('floating')
-                else if (faceLoupeMode === 'floating') setFaceLoupeModeAndStore('hidden')
-                else setFaceLoupeModeAndStore('sidebar')
-              }}
-              className={clsx(
-                'flex items-center gap-1 p-1.5 text-xs rounded-lg border transition-colors cursor-pointer shrink-0',
-                faceLoupeMode !== 'hidden'
-                  ? 'bg-indigo-500/20 border-indigo-500/60 text-indigo-300 font-semibold'
-                  : 'border-neutral-800 bg-neutral-900/90 hover:bg-neutral-800 text-neutral-400 hover:text-white'
-              )}
-              title={`Face Loupe: ${faceLoupeMode} (Click to cycle Bottom / Sidebar / Float / Hidden)`}
-            >
-              <Users size={12} className={faceLoupeMode !== 'hidden' ? 'text-indigo-400' : 'text-neutral-500'} />
-              <span className="capitalize hidden 2xl:inline text-xs">Faces</span>
+              <Info size={12} className={hudMode > 0 ? 'text-cyan-400' : 'text-neutral-500'} />
+              <span className="hidden xl:inline text-xs">HUD</span>
             </button>
 
             {/* Lights Out (L) */}
@@ -1688,18 +1833,69 @@ export default function Review() {
               <Moon size={12} className={lightsOutLevel > 0 ? 'text-amber-400' : 'text-neutral-500'} />
             </button>
 
-            {/* Info HUD (I) */}
+            {/* View Options popover (menu rendered fixed at root to avoid overflow clipping) */}
+            <div className="shrink-0">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (viewOptionsAnchor) {
+                    setViewOptionsAnchor(null)
+                  } else {
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    setViewOptionsAnchor({
+                      x: rect.right,
+                      y: rect.bottom,
+                    })
+                  }
+                }}
+                className={clsx(
+                  'flex items-center gap-1 px-2 py-1 text-xs rounded-lg border transition-colors cursor-pointer shadow-sm',
+                  viewOptionsAnchor
+                    ? 'bg-neutral-700 border-neutral-600 text-white'
+                    : 'border-neutral-700/80 bg-neutral-800/90 hover:bg-neutral-700 text-neutral-200 hover:text-white'
+                )}
+                title="View Options: clipping, histogram, face loupe, backdrop & filmstrip"
+              >
+                <Eye size={11} className="text-teal-400" />
+                <span className="font-medium hidden lg:inline">View</span>
+                <ChevronDown size={10} className="text-neutral-400" />
+              </button>
+            </div>
+
+            {/* Workspaces Dropdown (menu rendered fixed at root to avoid overflow clipping) */}
+            <div className="shrink-0">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (workspacesMenuAnchor) {
+                    setWorkspacesMenuAnchor(null)
+                  } else {
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    setWorkspacesMenuAnchor({
+                      x: rect.right,
+                      y: rect.bottom,
+                    })
+                  }
+                }}
+                className="flex items-center gap-1.5 px-2 py-1 text-xs rounded-full border border-neutral-700/80 bg-neutral-800/90 hover:bg-neutral-700 text-neutral-200 hover:text-white transition-colors cursor-pointer shadow-sm"
+                title="Switch or Save Workspaces"
+              >
+                <SlidersHorizontal size={11} className="text-indigo-400" />
+                <span className="font-medium max-w-[90px] sm:max-w-[120px] truncate">
+                  {activeWorkspace?.name || 'Workspace'}
+                </span>
+                <ChevronDown size={10} className="text-neutral-400" />
+              </button>
+            </div>
+
+            {/* Customize Panels (Window > Customize Panels...) */}
             <button
-              onClick={cycleHud}
-              className={clsx(
-                'p-1.5 text-xs rounded-lg border transition-colors cursor-pointer shrink-0',
-                hudMode > 0
-                  ? 'bg-cyan-500/20 border-cyan-500/70 text-cyan-300 font-semibold'
-                  : 'border-neutral-800 bg-neutral-900/90 hover:bg-neutral-800 text-neutral-400 hover:text-white'
-              )}
-              title="Cycle Photographic Info HUD: Triage / EXIF / Off (I)"
+              onClick={() => setShowPanelSelector(true)}
+              className="flex items-center gap-1 px-2 py-1 text-xs rounded-lg border border-neutral-800 bg-neutral-900/90 hover:bg-neutral-800 text-neutral-400 hover:text-white transition-colors cursor-pointer shrink-0"
+              title="Show or hide any panel (Customize Panels...)"
             >
-              <Info size={12} className={hudMode > 0 ? 'text-cyan-400' : 'text-neutral-500'} />
+              <LayoutGrid size={12} className="text-neutral-500" />
+              <span className="hidden xl:inline text-xs">Panels</span>
             </button>
 
             {/* Inspector / Score Panel Toggle (Tab) */}
@@ -1830,6 +2026,7 @@ export default function Review() {
               totalPhotos={photos.length}
               hudMode={hudMode}
               onCycleHud={cycleHud}
+              onClose={() => { setHudMode(0); setReviewStorage('hud_mode', '0'); }}
             />
 
             {/* Offscreen Pre-render DOM cache to keep Chromium compositor layers primed */}
@@ -1905,7 +2102,7 @@ export default function Review() {
           )}
 
           {/* Floating Culling Action Bar when placement is bottom */}
-          {triagePlacement === 'bottom' && (
+          {showCullingBar && triagePlacement === 'bottom' && (
             <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-30 pointer-events-auto transition-all">
               <CullingActionBar
                 status={photo.status}
@@ -1994,6 +2191,7 @@ export default function Review() {
                     onSelectFace={handleSelectFace}
                     onResetZoom={handleResetZoom}
                     zoomLevel={zoomLevel}
+                    cullingBarVisible={showCullingBar}
                   />
                 </div>
               </DraggablePanel>
@@ -2259,7 +2457,7 @@ export default function Review() {
                             <div className="flex items-center justify-center max-w-xl mx-auto py-1">
                               <HistogramChart imageUrl={api.getFullImageUrl(photo.id)} />
                             </div>
-                          ) : activeTab === 'culling' ? (
+                          ) : activeTab === 'culling' && showCullingBar ? (
                             <div className="py-1">
                               <CullingActionBar
                                 status={photo.status}
@@ -2279,6 +2477,7 @@ export default function Review() {
                                 onSelectFace={handleSelectFace}
                                 onResetZoom={handleResetZoom}
                                 zoomLevel={zoomLevel}
+                                cullingBarVisible={showCullingBar}
                               />
                             </div>
                           )}
@@ -2368,7 +2567,7 @@ export default function Review() {
         )}
 
         {/* Adaptive Moveable Culling Action Bar (bottom placement floats over the photo viewport) */}
-        {triagePlacement !== 'sidebar' && triagePlacement !== 'bottom' && (
+        {showCullingBar && triagePlacement !== 'sidebar' && triagePlacement !== 'bottom' && (
           <CullingActionBar
             status={photo.status}
             isTagged={Boolean(photo.is_tagged)}
@@ -2577,6 +2776,7 @@ export default function Review() {
             onSetModulePlacement={setModulePlacement}
             triagePlacement={triagePlacement}
             onSetTriagePlacement={setTriagePlacement}
+            cullingBarVisible={showCullingBar}
             onStatus={handleStatus}
             onToggleTag={() => photo && togglePhotoTag(photo.id)}
           />
@@ -2753,6 +2953,7 @@ export default function Review() {
                 onSelectFace={handleSelectFace}
                 onResetZoom={handleResetZoom}
                 zoomLevel={zoomLevel}
+                cullingBarVisible={showCullingBar}
               />
             )}
           </div>
@@ -2915,6 +3116,132 @@ export default function Review() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* View Options popover (fixed at root so overflow containers can't clip it) */}
+      {viewOptionsAnchor && (
+        <>
+          <div className="fixed inset-0 z-[9999]" onClick={() => setViewOptionsAnchor(null)} />
+          <div
+            style={{
+              position: 'fixed',
+              top: `${viewOptionsAnchor.y + 4}px`,
+              right: `${Math.max(10, window.innerWidth - viewOptionsAnchor.x)}px`,
+              zIndex: 10000,
+            }}
+            className="w-72 bg-neutral-900 border border-neutral-700 rounded-xl shadow-2xl py-1.5 animate-in fade-in zoom-in-95 duration-100 max-h-[calc(100vh-80px)] overflow-y-auto"
+          >
+            <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-neutral-400 font-bold border-b border-neutral-800">
+              View Options
+            </div>
+
+            {/* Exposure Clipping */}
+            <button
+              onClick={() => setShowClipping(prev => !prev)}
+              className="w-full flex items-center justify-between px-3 py-1.5 text-xs text-left transition-colors hover:bg-white/5 cursor-pointer"
+              title="Toggle Exposure Clipping Overlay (E)"
+            >
+              <span className={showClipping ? 'text-rose-300 font-semibold' : 'text-neutral-300'}>
+                Exposure Clipping <span className="text-neutral-500 font-mono text-[10px]">(E)</span>
+              </span>
+              {showClipping && <Check size={13} className="text-rose-400 shrink-0" />}
+            </button>
+
+            <div className="border-t border-neutral-800 mt-1 pt-1 px-3 pb-1">
+              <div className="text-[10px] uppercase tracking-wider text-neutral-500 font-bold py-1">
+                Histogram <span className="text-neutral-600 font-mono normal-case">(H cycles)</span>
+              </div>
+              <div className="flex flex-wrap gap-1 pb-1">
+                {(['sidebar', 'floating', 'hidden'] as const).map(mode => (
+                  <button
+                    key={mode}
+                    onClick={() => setHistogramModeAndStore(mode)}
+                    className={clsx(
+                      'px-2 py-1 text-[11px] rounded-md border capitalize transition-colors cursor-pointer',
+                      histogramMode === mode
+                        ? 'bg-purple-500/20 border-purple-500/60 text-purple-200 font-semibold'
+                        : 'border-neutral-700/70 text-neutral-400 hover:text-white hover:bg-neutral-800'
+                    )}
+                  >
+                    {mode}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="border-t border-neutral-800 pt-1 px-3 pb-1">
+              <div className="text-[10px] uppercase tracking-wider text-neutral-500 font-bold py-1">
+                Face Loupe
+              </div>
+              <div className="flex flex-wrap gap-1 pb-1">
+                {(['bottom', 'sidebar', 'floating', 'hidden'] as const).map(mode => (
+                  <button
+                    key={mode}
+                    onClick={() => setFaceLoupeModeAndStore(mode)}
+                    className={clsx(
+                      'px-2 py-1 text-[11px] rounded-md border capitalize transition-colors cursor-pointer',
+                      faceLoupeMode === mode
+                        ? 'bg-indigo-500/20 border-indigo-500/60 text-indigo-200 font-semibold'
+                        : 'border-neutral-700/70 text-neutral-400 hover:text-white hover:bg-neutral-800'
+                    )}
+                  >
+                    {mode}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="border-t border-neutral-800 pt-1 px-3 pb-1">
+              <div className="text-[10px] uppercase tracking-wider text-neutral-500 font-bold py-1">
+                Canvas Backdrop
+              </div>
+              <div className="flex flex-wrap gap-1 pb-1">
+                {([
+                  { id: 'black', label: 'Black' },
+                  { id: 'dark', label: 'Dark Gray' },
+                  { id: 'neutral', label: '18% Neutral Gray' },
+                  { id: 'theme', label: 'Theme' },
+                ] as const).map(opt => (
+                  <button
+                    key={opt.id}
+                    onClick={() => setCanvasBackdrop(opt.id)}
+                    className={clsx(
+                      'px-2 py-1 text-[11px] rounded-md border transition-colors cursor-pointer',
+                      canvasBackdrop === opt.id
+                        ? 'bg-teal-500/20 border-teal-500/60 text-teal-200 font-semibold'
+                        : 'border-neutral-700/70 text-neutral-400 hover:text-white hover:bg-neutral-800'
+                    )}
+                    title={opt.id === 'neutral' ? '18% calibrated neutral gray' : opt.label}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="border-t border-neutral-800 pt-1 px-3 pb-1">
+              <div className="text-[10px] uppercase tracking-wider text-neutral-500 font-bold py-1">
+                Filmstrip <span className="text-neutral-600 font-mono normal-case">(B cycles)</span>
+              </div>
+              <div className="flex flex-wrap gap-1 pb-1">
+                {(['bottom', 'side', 'floating', 'hidden'] as const).map(pos => (
+                  <button
+                    key={pos}
+                    onClick={() => setFilmstripPosition(pos as typeof filmstripPosition)}
+                    className={clsx(
+                      'px-2 py-1 text-[11px] rounded-md border capitalize transition-colors cursor-pointer',
+                      filmstripPosition === pos
+                        ? 'bg-blue-500/20 border-blue-500/60 text-blue-200 font-semibold'
+                        : 'border-neutral-700/70 text-neutral-400 hover:text-white hover:bg-neutral-800'
+                    )}
+                  >
+                    {pos}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </>
       )}
 
       {/* Workspaces menu (fixed at root so overflow containers can't clip it) */}
@@ -3100,6 +3427,16 @@ export default function Review() {
         isOpen={showThemeModal}
         onClose={() => setShowThemeModal(false)}
         onCanvasBackdropChange={setCanvasBackdrop}
+      />
+
+      {/* Adobe-style Panel Selector (Show / Hide Panels) */}
+      <PanelSelectorModal
+        isOpen={showPanelSelector}
+        onClose={() => setShowPanelSelector(false)}
+        items={panelSelectorItems}
+        onToggle={togglePanelVisibility}
+        onShowAll={showAllPanels}
+        onResetDefaults={resetDefaultPanels}
       />
     </div>
   )

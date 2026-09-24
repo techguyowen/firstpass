@@ -2,8 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft, Check, X, ZoomIn, ZoomOut, Crown, Camera, Sparkles,
-  Lock, Unlock, ChevronLeft, ChevronRight, Maximize2, Minimize2,
-  Users, Eye, Layers, RotateCcw, ArrowLeftRight, Pin
+  Lock, Unlock, ChevronLeft, ChevronRight, ChevronDown, Maximize2, Minimize2,
+  Users, Eye, Layers, RotateCcw, RotateCw, ArrowLeftRight, Pin
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '../api/client'
@@ -23,12 +23,88 @@ export const Compare: React.FC = () => {
   const [comparePhotos, setComparePhotos] = useState<Photo[]>([])
   const [lockReference, setLockReference] = useState<boolean>(true)
   const [activeSlot, setActiveSlot] = useState<number>(1) // 0 for left (ref), 1 for right (candidate)
-  const [zoomLevel, setZoomLevel] = useState<number>(1)
-  const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
-  const [isDragging, setIsDragging] = useState(false)
+
+  // Independent per-slot view state: zoom, pan offset, and rotation.
+  // Slot 0 is the Reference, slot 1 is the Candidate.
+  interface SlotView {
+    zoom: number
+    pan: { x: number; y: number }
+    rotation: 0 | 90 | 180 | 270
+  }
+  const DEFAULT_SLOT_VIEW: SlotView = { zoom: 1, pan: { x: 0, y: 0 }, rotation: 0 }
+  const [slotViews, setSlotViews] = useState<SlotView[]>([{ ...DEFAULT_SLOT_VIEW }, { ...DEFAULT_SLOT_VIEW }])
+  const [dragSlot, setDragSlot] = useState<number | null>(null)
   const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   const [showFilmstrip, setShowFilmstrip] = useState<boolean>(true)
+  const [showMatchMenu, setShowMatchMenu] = useState<boolean>(false)
   const [loading, setLoading] = useState(true)
+
+  const viewForSlot = (slot: number): SlotView => slotViews[slot] || DEFAULT_SLOT_VIEW
+
+  const patchSlotView = useCallback((slot: number, patch: Partial<SlotView>) => {
+    setSlotViews((prev) => {
+      const base = prev[slot] || DEFAULT_SLOT_VIEW
+      const next = [...prev]
+      next[slot] = {
+        ...base,
+        ...patch,
+        pan: patch.pan ? { ...patch.pan } : { ...base.pan },
+      }
+      return next
+    })
+  }, [])
+
+  // Adobe-style Match commands: copy the Reference (slot 0) view onto the Candidate (slot 1)
+  const handleMatchZoom = useCallback(() => {
+    setSlotViews((prev) => {
+      if (prev.length < 2 || !prev[0] || !prev[1]) return prev
+      const next = [...prev]
+      next[1] = { ...next[1], zoom: next[0].zoom }
+      return next
+    })
+    toast.success('Matched Zoom across photographs', { id: 'match-view' })
+  }, [])
+
+  const handleMatchLocation = useCallback(() => {
+    setSlotViews((prev) => {
+      if (prev.length < 2 || !prev[0] || !prev[1]) return prev
+      const next = [...prev]
+      next[1] = { ...next[1], pan: { ...next[0].pan } }
+      return next
+    })
+    toast.success('Matched Location across photographs', { id: 'match-view' })
+  }, [])
+
+  const handleMatchRotation = useCallback(() => {
+    setSlotViews((prev) => {
+      if (prev.length < 2 || !prev[0] || !prev[1]) return prev
+      const next = [...prev]
+      next[1] = { ...next[1], rotation: next[0].rotation }
+      return next
+    })
+    toast.success('Matched Rotation across photographs', { id: 'match-view' })
+  }, [])
+
+  const handleMatchAll = useCallback(() => {
+    setSlotViews((prev) => {
+      if (prev.length < 2 || !prev[0] || !prev[1]) return prev
+      const next = [...prev]
+      next[1] = { ...next[1], zoom: next[0].zoom, pan: { ...next[0].pan }, rotation: next[0].rotation }
+      return next
+    })
+    toast.success('Matched Zoom & Location across photographs', { id: 'match-view' })
+  }, [])
+
+  const handleRotateSlot = useCallback((slot: number) => {
+    setSlotViews((prev) => {
+      const base = prev[slot] || DEFAULT_SLOT_VIEW
+      const order: SlotView['rotation'][] = [0, 90, 180, 270]
+      const nextRotation = order[(order.indexOf(base.rotation) + 1) % order.length]
+      const next = [...prev]
+      next[slot] = { ...base, rotation: nextRotation }
+      return next
+    })
+  }, [])
 
   const filmstripRef = useRef<HTMLDivElement>(null)
 
@@ -214,12 +290,17 @@ export const Compare: React.FC = () => {
         case 'z':
         case 'Z':
         case 'f':
-        case 'F':
-          setZoomLevel((z) => (z > 1 ? 1 : 2.5))
-          setPanOffset({ x: 0, y: 0 })
+        case 'F': {
+          const current = slotViews[activeSlot] || DEFAULT_SLOT_VIEW
+          patchSlotView(activeSlot, current.zoom > 1 ? { zoom: 1, pan: { x: 0, y: 0 } } : { zoom: 2.5, pan: { x: 0, y: 0 } })
           break
+        }
         case 'Escape':
-          handleBack()
+          if (showMatchMenu) {
+            setShowMatchMenu(false)
+          } else {
+            handleBack()
+          }
           break
         default:
           break
@@ -228,7 +309,7 @@ export const Compare: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleBack, navigateCandidate, handleSetStatus, handleSwap, comparePhotos])
+  }, [handleBack, navigateCandidate, handleSetStatus, handleSwap, comparePhotos, slotViews, activeSlot, patchSlotView, showMatchMenu])
 
   // Native Application Menu actions targeted at Compare
   useEffect(() => {
@@ -245,40 +326,55 @@ export const Compare: React.FC = () => {
             handleSetStatus(comparePhotos[1].id, 'rejected')
           }
           break
-        case 'toggle-zoom':
-          setZoomLevel((z) => (z > 1 ? 1 : 2.5))
-          setPanOffset({ x: 0, y: 0 })
+        case 'toggle-zoom': {
+          const current = slotViews[activeSlot] || DEFAULT_SLOT_VIEW
+          patchSlotView(activeSlot, current.zoom > 1 ? { zoom: 1, pan: { x: 0, y: 0 } } : { zoom: 2.5, pan: { x: 0, y: 0 } })
           break
+        }
         case 'zoom-fit':
-          setZoomLevel(1)
-          setPanOffset({ x: 0, y: 0 })
+          patchSlotView(activeSlot, { zoom: 1, pan: { x: 0, y: 0 } })
+          break
+        case 'match-zoom':
+          handleMatchZoom()
+          break
+        case 'match-location':
+          handleMatchLocation()
+          break
+        case 'match-rotation':
+          handleMatchRotation()
+          break
+        case 'match-all':
+          handleMatchAll()
           break
       }
     }
 
     window.addEventListener('app:menu-action', handleAppMenuAction)
     return () => window.removeEventListener('app:menu-action', handleAppMenuAction)
-  }, [comparePhotos, activeSlot, handleSetStatus])
+  }, [comparePhotos, activeSlot, handleSetStatus, slotViews, patchSlotView, handleMatchZoom, handleMatchLocation, handleMatchRotation, handleMatchAll])
 
-  // Drag to pan handling
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (zoomLevel > 1) {
-      setIsDragging(true)
-      setDragStart({ x: e.clientX - panOffset.x, y: e.clientY - panOffset.y })
+  // Drag to pan handling (per-slot: each comparison slot pans independently)
+  const handleMouseDown = (e: React.MouseEvent, slot: number) => {
+    const view = slotViews[slot] || DEFAULT_SLOT_VIEW
+    if (view.zoom > 1) {
+      setDragSlot(slot)
+      setDragStart({ x: e.clientX - view.pan.x, y: e.clientY - view.pan.y })
     }
   }
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (isDragging && zoomLevel > 1) {
-      setPanOffset({
-        x: e.clientX - dragStart.x,
-        y: e.clientY - dragStart.y,
-      })
+    if (dragSlot !== null) {
+      const view = slotViews[dragSlot] || DEFAULT_SLOT_VIEW
+      if (view.zoom > 1) {
+        patchSlotView(dragSlot, {
+          pan: { x: e.clientX - dragStart.x, y: e.clientY - dragStart.y },
+        })
+      }
     }
   }
 
   const handleMouseUp = () => {
-    setIsDragging(false)
+    setDragSlot(null)
   }
 
   if (loading) {
@@ -380,40 +476,93 @@ export const Compare: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Controls: Zoom & Filmstrip Toggle */}
+        {/* Right Controls: Zoom, Match View & Filmstrip Toggle */}
         <div className="flex items-center gap-2">
-          {/* Synchronized Zoom Controls */}
+          {/* Per-Slot Zoom Controls (applies to the active slot) */}
           <div className="flex items-center gap-1 bg-neutral-950 px-2 py-1 rounded-lg border border-neutral-800 text-xs">
             <button
               onClick={() => {
-                setZoomLevel((z) => Math.max(1, z - 0.5))
-                if (zoomLevel <= 1.5) setPanOffset({ x: 0, y: 0 })
+                const current = viewForSlot(activeSlot)
+                const nextZoom = Math.max(1, current.zoom - 0.5)
+                patchSlotView(activeSlot, nextZoom <= 1 ? { zoom: nextZoom, pan: { x: 0, y: 0 } } : { zoom: nextZoom })
               }}
               className="text-neutral-400 hover:text-white transition-colors p-1 cursor-pointer"
-              title="Zoom Out"
+              title={`Zoom Out (${activeSlot === 0 ? 'Reference' : 'Candidate'} slot)`}
             >
               <ZoomOut size={13} />
             </button>
             <span className="font-mono text-indigo-400 w-11 text-center text-xs">
-              {Math.round(zoomLevel * 100)}%
+              {Math.round(viewForSlot(activeSlot).zoom * 100)}%
             </span>
             <button
-              onClick={() => setZoomLevel((z) => Math.min(4, z + 0.5))}
+              onClick={() => {
+                const current = viewForSlot(activeSlot)
+                patchSlotView(activeSlot, { zoom: Math.min(4, current.zoom + 0.5) })
+              }}
               className="text-neutral-400 hover:text-white transition-colors p-1 cursor-pointer"
-              title="Zoom In"
+              title={`Zoom In (${activeSlot === 0 ? 'Reference' : 'Candidate'} slot)`}
             >
               <ZoomIn size={13} />
             </button>
             <button
               onClick={() => {
-                setZoomLevel(1)
-                setPanOffset({ x: 0, y: 0 })
+                patchSlotView(activeSlot, { zoom: 1, pan: { x: 0, y: 0 } })
               }}
               className="text-[10px] text-neutral-500 hover:text-neutral-300 px-1 py-0.5 rounded cursor-pointer font-medium"
-              title="Reset Zoom & Pan"
+              title="Reset Zoom & Pan for the active slot"
             >
               Reset
             </button>
+          </div>
+
+          {/* Adobe-style Match View dropdown (copies Reference view onto Candidate) */}
+          <div className="relative">
+            <button
+              onClick={() => setShowMatchMenu((prev) => !prev)}
+              className={clsx(
+                'flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg border transition-colors cursor-pointer',
+                showMatchMenu
+                  ? 'bg-neutral-700 border-neutral-600 text-white'
+                  : 'bg-neutral-800 border-neutral-700 text-neutral-300 hover:text-white'
+              )}
+              title="Match the Candidate view to the Reference (Zoom, Location, Rotation)"
+            >
+              <ArrowLeftRight size={12} className="text-teal-400" />
+              <span>Match</span>
+              <ChevronDown size={11} className="text-neutral-400" />
+            </button>
+            {showMatchMenu && (
+              <>
+                <div className="fixed inset-0 z-30" onClick={() => setShowMatchMenu(false)} />
+                <div className="absolute right-0 top-full mt-1 z-40 w-44 bg-neutral-900 border border-neutral-700/80 rounded-xl shadow-2xl overflow-hidden py-1">
+                  <button
+                    onClick={() => { handleMatchZoom(); setShowMatchMenu(false) }}
+                    className="w-full text-left px-3 py-1.5 hover:bg-neutral-800 text-xs text-neutral-200 cursor-pointer"
+                  >
+                    Match Zoom
+                  </button>
+                  <button
+                    onClick={() => { handleMatchLocation(); setShowMatchMenu(false) }}
+                    className="w-full text-left px-3 py-1.5 hover:bg-neutral-800 text-xs text-neutral-200 cursor-pointer"
+                  >
+                    Match Location
+                  </button>
+                  <button
+                    onClick={() => { handleMatchRotation(); setShowMatchMenu(false) }}
+                    className="w-full text-left px-3 py-1.5 hover:bg-neutral-800 text-xs text-neutral-200 cursor-pointer"
+                  >
+                    Match Rotation
+                  </button>
+                  <div className="my-1 h-px bg-neutral-800" />
+                  <button
+                    onClick={() => { handleMatchAll(); setShowMatchMenu(false) }}
+                    className="w-full text-left px-3 py-1.5 hover:bg-neutral-800 text-xs font-semibold text-neutral-100 cursor-pointer"
+                  >
+                    Match All
+                  </button>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Toggle Filmstrip */}
@@ -486,6 +635,18 @@ export const Compare: React.FC = () => {
 
                 {/* Keep / Reject Controls */}
                 <div className="flex items-center gap-1.5 shrink-0">
+                  {/* Per-slot rotation (0 / 90 / 180 / 270) */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleRotateSlot(slotIdx)
+                    }}
+                    className="px-2 py-1 rounded-lg text-xs font-bold flex items-center gap-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white border border-neutral-700 transition-all cursor-pointer"
+                    title={`Rotate this photo (currently ${viewForSlot(slotIdx).rotation}°)`}
+                  >
+                    <RotateCw className="w-3 h-3 text-neutral-400" />
+                    <span>{viewForSlot(slotIdx).rotation}°</span>
+                  </button>
                   {/* Promote Candidate to Reference button */}
                   {!isRefSlot ? (
                     <button
@@ -542,21 +703,21 @@ export const Compare: React.FC = () => {
                 </div>
               </div>
 
-              {/* Synchronized Image Canvas with Drag-to-Pan */}
+              {/* Independent Image Canvas with Drag-to-Pan (per-slot zoom, location & rotation) */}
               <div
                 className={clsx(
                   'flex-1 bg-black relative flex items-center justify-center overflow-hidden',
-                  zoomLevel > 1 ? (isDragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-default'
+                  viewForSlot(slotIdx).zoom > 1 ? (dragSlot === slotIdx ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-default'
                 )}
-                onMouseDown={handleMouseDown}
+                onMouseDown={(e) => handleMouseDown(e, slotIdx)}
               >
                 <img
                   src={api.getFullImageUrl(photo.id)}
                   alt={photo.filename}
                   style={{
-                    transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoomLevel})`,
+                    transform: `translate(${viewForSlot(slotIdx).pan.x}px, ${viewForSlot(slotIdx).pan.y}px) rotate(${viewForSlot(slotIdx).rotation}deg) scale(${viewForSlot(slotIdx).zoom})`,
                     transformOrigin: 'center center',
-                    transition: isDragging ? 'none' : 'transform 0.12s ease-out',
+                    transition: dragSlot === slotIdx ? 'none' : 'transform 0.12s ease-out',
                   }}
                   className="max-h-full max-w-full object-contain pointer-events-none select-none"
                   draggable={false}
