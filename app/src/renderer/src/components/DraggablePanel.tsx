@@ -170,14 +170,35 @@ export default function DraggablePanel({
 
       animationFrameRef.current = requestAnimationFrame(() => {
         const panelW = panelRef.current?.offsetWidth || size.width
+        const panelH = panelRef.current?.offsetHeight || size.height || 220
         const maxX = Math.max(10, window.innerWidth - panelW - 10)
         const maxY = Math.max(10, window.innerHeight - 60)
 
         const rawX = ev.clientX - dragOffsetRef.current.x
         const rawY = ev.clientY - dragOffsetRef.current.y
 
-        const clampedX = Math.min(maxX, Math.max(10, rawX))
-        const clampedY = Math.min(maxY, Math.max(10, rawY))
+        // Magnetic edge snapping: snap within 16px of screen edges
+        // (left=10px, right=window.innerWidth - width - 10px,
+        //  top=10px, bottom=window.innerHeight - height - 10px).
+        const SNAP_DISTANCE = 16
+        const EDGE_OFFSET = 10
+        const rightEdge = window.innerWidth - panelW - EDGE_OFFSET
+        const bottomEdge = window.innerHeight - panelH - EDGE_OFFSET
+        let snappedX = rawX
+        if (Math.abs(rawX - EDGE_OFFSET) <= SNAP_DISTANCE) {
+          snappedX = EDGE_OFFSET
+        } else if (Math.abs(rawX - rightEdge) <= SNAP_DISTANCE) {
+          snappedX = rightEdge
+        }
+        let snappedY = rawY
+        if (Math.abs(rawY - EDGE_OFFSET) <= SNAP_DISTANCE) {
+          snappedY = EDGE_OFFSET
+        } else if (Math.abs(rawY - bottomEdge) <= SNAP_DISTANCE) {
+          snappedY = bottomEdge
+        }
+
+        const clampedX = Math.min(maxX, Math.max(10, snappedX))
+        const clampedY = Math.min(maxY, Math.max(10, snappedY))
 
         setPosition({ x: clampedX, y: clampedY })
 

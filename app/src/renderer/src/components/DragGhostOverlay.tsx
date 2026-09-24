@@ -18,22 +18,22 @@ export default function DragGhostOverlay() {
 
   return (
     <div className="fixed inset-0 pointer-events-none z-[99999] overflow-hidden select-none">
-      {/* 1. Visual Drop Indicator Guides */}
+      {/* 1. Polished universal drop landing marquee (Adobe Premiere / ACDSee style) */}
       {dropTarget && dropTarget.type === 'side-dock' && (
         <div
-          className={`absolute top-12 bottom-2 w-2.5 bg-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.8)] animate-pulse rounded-full transition-all ${
+          className={`absolute top-12 bottom-2 w-72 bg-blue-500/20 border-2 border-blue-400 rounded-xl backdrop-blur-xs shadow-[0_0_30px_rgba(59,130,246,0.35)] animate-in fade-in duration-100 flex items-center justify-center transition-all pointer-events-none ${
             dropTarget.side === 'left' ? 'left-16' : 'right-2'
           }`}
         >
-          <div className="absolute top-1/2 -translate-y-1/2 left-4 bg-blue-600 text-white font-semibold text-[11px] px-2.5 py-1 rounded-full shadow-lg whitespace-nowrap">
+          <div className="bg-blue-600 text-white font-semibold text-[11px] px-2.5 py-1 rounded-full shadow-lg whitespace-nowrap">
             Dock to {dropTarget.side === 'left' ? 'Left Edge' : 'Right Edge'}
           </div>
         </div>
       )}
 
       {dropTarget && dropTarget.type === 'sidebar-dock' && (
-        <div className="absolute top-12 bottom-2 right-2 w-3 bg-blue-500 shadow-[0_0_25px_rgba(59,130,246,0.9)] animate-pulse rounded-full transition-all">
-          <div className="absolute top-1/2 -translate-y-1/2 right-6 bg-blue-600 text-white font-semibold text-[11px] px-3 py-1 rounded-full shadow-xl whitespace-nowrap flex items-center gap-1.5">
+        <div className="absolute top-12 bottom-2 right-2 w-80 bg-blue-500/20 border-2 border-blue-400 rounded-xl backdrop-blur-xs shadow-[0_0_30px_rgba(59,130,246,0.35)] animate-in fade-in duration-100 flex items-center justify-center transition-all pointer-events-none">
+          <div className="bg-blue-600 text-white font-semibold text-[11px] px-3 py-1 rounded-full shadow-xl whitespace-nowrap flex items-center gap-1.5">
             <Sparkles size={12} />
             <span>Dock into Inspector Sidebar</span>
           </div>
@@ -41,8 +41,8 @@ export default function DragGhostOverlay() {
       )}
 
       {dropTarget && dropTarget.type === 'bottom-dock' && (
-        <div className="absolute bottom-2 left-20 right-4 h-3 bg-blue-500 shadow-[0_0_25px_rgba(59,130,246,0.9)] animate-pulse rounded-full transition-all">
-          <div className="absolute left-1/2 -translate-x-1/2 -top-7 bg-blue-600 text-white font-semibold text-[11px] px-3 py-1 rounded-full shadow-xl whitespace-nowrap flex items-center gap-1.5">
+        <div className="absolute bottom-2 left-20 right-4 h-32 bg-blue-500/20 border-2 border-blue-400 rounded-xl backdrop-blur-xs shadow-[0_0_30px_rgba(59,130,246,0.35)] animate-in fade-in duration-100 flex items-center justify-center transition-all pointer-events-none">
+          <div className="bg-blue-600 text-white font-semibold text-[11px] px-3 py-1 rounded-full shadow-xl whitespace-nowrap flex items-center gap-1.5">
             <Sparkles size={12} />
             <span>Drop to Dock to Bottom Stage Bar</span>
           </div>

@@ -231,11 +231,40 @@ export default function CullingActionBar({
           } else if (drop.dropTarget.type === 'side-dock') {
             handleUpdatePlacement(drop.dropTarget.side === 'left' ? 'side-left' : 'side-right')
           } else {
-            // Free float at mouse release
+            // Free float at mouse release (with magnetic edge snapping)
             handleUpdatePlacement('floating')
-            const clampedX = Math.max(20, Math.min(window.innerWidth - 440, ev.clientX - 100))
-            const clampedY = Math.max(60, Math.min(window.innerHeight - 90, ev.clientY - 25))
-            const newPos = { x: clampedX, y: clampedY }
+            const barW = barRef.current?.offsetWidth || 420
+            const barH = barRef.current?.offsetHeight || 60
+            const rawX = ev.clientX - 100
+            const rawY = ev.clientY - 25
+            // Magnetic boundary snap when floating within 16px of screen edges
+            // (left=10px, right=window.innerWidth - width - 10px,
+            //  top=10px, bottom=window.innerHeight - height - 10px).
+            const SNAP_DISTANCE = 16
+            const EDGE_OFFSET = 10
+            const rightEdge = window.innerWidth - barW - EDGE_OFFSET
+            const bottomEdge = window.innerHeight - barH - EDGE_OFFSET
+            let snappedX = rawX
+            if (Math.abs(rawX - EDGE_OFFSET) <= SNAP_DISTANCE) {
+              snappedX = EDGE_OFFSET
+            } else if (Math.abs(rawX - rightEdge) <= SNAP_DISTANCE) {
+              snappedX = rightEdge
+            }
+            let snappedY = rawY
+            if (Math.abs(rawY - EDGE_OFFSET) <= SNAP_DISTANCE) {
+              snappedY = EDGE_OFFSET
+            } else if (Math.abs(rawY - bottomEdge) <= SNAP_DISTANCE) {
+              snappedY = bottomEdge
+            }
+            const clampedX = Math.max(
+              EDGE_OFFSET,
+              Math.min(Math.max(EDGE_OFFSET, rightEdge), snappedX)
+            )
+            const clampedY = Math.max(
+              EDGE_OFFSET,
+              Math.min(Math.max(EDGE_OFFSET, bottomEdge), snappedY)
+            )
+            const newPos = { x: Math.round(clampedX), y: Math.round(clampedY) }
             setFloatPos(newPos)
             try {
               localStorage.setItem('photo_culler_triage_hud_pos', JSON.stringify(newPos))

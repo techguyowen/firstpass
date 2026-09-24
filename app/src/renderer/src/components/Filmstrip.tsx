@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { CheckCircle2, XCircle, PanelBottom, PanelRight, ChevronDown, ChevronRight, GripVertical, Move, X, ArrowLeftRight } from 'lucide-react'
 import clsx from 'clsx'
 import { api } from '../api/client'
@@ -6,6 +6,28 @@ import { preloadAndDecodeImage } from '../utils/imagePreloader'
 import type { Photo } from '../types/photo'
 
 type FilmstripPos = 'bottom' | 'side' | 'floating' | 'hidden'
+
+type ThumbSize = 'compact' | 'standard' | 'large'
+type StatusFilter = 'all' | 'pending' | 'accepted' | 'rejected'
+
+const THUMB_SIZE_KEY = 'firstpass_filmstrip_thumb_size'
+const THUMB_SIZE_LEGACY_KEY = 'photo_culler_filmstrip_thumb_size'
+
+function loadThumbSize(): ThumbSize {
+  try {
+    const saved =
+      localStorage.getItem(THUMB_SIZE_KEY) ?? localStorage.getItem(THUMB_SIZE_LEGACY_KEY)
+    if (saved === 'compact' || saved === 'standard' || saved === 'large') return saved
+  } catch {}
+  return 'standard'
+}
+
+function storeThumbSize(size: ThumbSize): void {
+  try {
+    localStorage.setItem(THUMB_SIZE_KEY, size)
+    localStorage.setItem(THUMB_SIZE_LEGACY_KEY, size)
+  } catch {}
+}
 
 interface FilmstripProps {
   photos: Photo[]
@@ -45,6 +67,49 @@ export default function Filmstrip({
   const activeThumbRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const [showMenu, setShowMenu] = useState(false)
+  const [thumbSize, setThumbSize] = useState<ThumbSize>(loadThumbSize)
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+
+  const handleSetThumbSize = (size: ThumbSize) => {
+    setThumbSize(size)
+    storeThumbSize(size)
+  }
+
+  const statusCounts = useMemo(() => {
+    let pending = 0
+    let accepted = 0
+    let rejected = 0
+    for (const p of photos) {
+      if (p.status === 'accepted') accepted += 1
+      else if (p.status === 'rejected') rejected += 1
+      else pending += 1
+    }
+    return { all: photos.length, pending, accepted, rejected }
+  }, [photos])
+
+  const visiblePhotos = useMemo(() => {
+    if (statusFilter === 'all') return photos
+    return photos.filter((p) => p.status === statusFilter)
+  }, [photos, statusFilter])
+
+  const handleChipClick = (filter: StatusFilter) => {
+    if (statusFilter !== filter) {
+      setStatusFilter(filter)
+      return
+    }
+    // Clicking the active chip jumps to the first photo of that status.
+    const first =
+      filter === 'all' ? photos[0] : photos.find((p) => p.status === filter)
+    if (first) onSelectPhoto(first.id)
+  }
+
+  // Compact `h-16 w-20`, Standard `h-20 w-24`, Large `h-24 w-30`
+  const thumbClass =
+    thumbSize === 'compact'
+      ? 'h-16 w-20'
+      : thumbSize === 'large'
+        ? 'h-24 w-30'
+        : 'h-20 w-24'
 
   // Auto-scroll the active thumbnail into view
   useEffect(() => {
@@ -55,7 +120,7 @@ export default function Filmstrip({
         inline: 'center',
       })
     }
-  }, [currentPhotoId, position])
+  }, [currentPhotoId, position, statusFilter])
 
   // Close the options menu on outside click / Escape
   useEffect(() => {
@@ -126,6 +191,33 @@ export default function Filmstrip({
           </span>
         </div>
         <div className="flex items-center gap-1">
+          {/* Thumbnail density toggle */}
+          <div
+            className="flex items-center rounded-md border border-neutral-800 overflow-hidden mr-1"
+            title="Thumbnail size"
+          >
+            {(['compact', 'standard', 'large'] as ThumbSize[]).map((size) => (
+              <button
+                key={size}
+                onClick={() => handleSetThumbSize(size)}
+                className={clsx(
+                  'px-1.5 py-0.5 text-[10px] font-semibold transition-colors cursor-pointer',
+                  thumbSize === size
+                    ? 'bg-blue-600 text-white'
+                    : 'text-neutral-500 hover:text-neutral-200 hover:bg-neutral-800'
+                )}
+                title={
+                  size === 'compact'
+                    ? 'Compact thumbnails (h-16 w-20)'
+                    : size === 'large'
+                      ? 'Large thumbnails (h-24 w-30)'
+                      : 'Standard thumbnails (h-20 w-24)'
+                }
+              >
+                {size === 'compact' ? 'S' : size === 'large' ? 'L' : 'M'}
+              </button>
+            ))}
+          </div>
           {onSwapSides && (
             <button
               onClick={onSwapSides}
@@ -232,6 +324,40 @@ export default function Filmstrip({
         )}
       </div>
 
+      {/* Status filter quick-chips */}
+      <div className="flex items-center gap-1 px-2 py-1 shrink-0 border-b border-neutral-800/60 bg-neutral-950/60 overflow-x-auto scrollbar-none">
+        {(['all', 'pending', 'accepted', 'rejected'] as StatusFilter[]).map((filter) => {
+          const isActive = statusFilter === filter
+          const count = statusCounts[filter]
+          return (
+            <button
+              key={filter}
+              onClick={() => handleChipClick(filter)}
+              className={clsx(
+                'flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap transition-colors cursor-pointer border',
+                isActive
+                  ? filter === 'accepted'
+                    ? 'bg-emerald-600/20 border-emerald-500/60 text-emerald-300'
+                    : filter === 'rejected'
+                      ? 'bg-rose-600/20 border-rose-500/60 text-rose-300'
+                      : filter === 'pending'
+                        ? 'bg-amber-500/15 border-amber-500/50 text-amber-300'
+                        : 'bg-blue-600/20 border-blue-500/60 text-blue-300'
+                  : 'bg-transparent border-neutral-800 text-neutral-500 hover:text-neutral-200 hover:border-neutral-600'
+              )}
+              title={
+                isActive
+                  ? `Showing ${filter} — click again to jump to first ${filter} photo`
+                  : `Filter filmstrip to ${filter} photos`
+              }
+            >
+              <span className="capitalize">{filter}</span>
+              <span className="font-mono opacity-80">{count}</span>
+            </button>
+          )
+        })}
+      </div>
+
       {/* Thumbnails list */}
       <div
         ref={containerRef}
@@ -240,7 +366,7 @@ export default function Filmstrip({
           isHorizontal ? 'flex flex-row items-center overflow-x-auto overflow-y-hidden' : 'flex flex-col items-center overflow-y-auto overflow-x-hidden'
         )}
       >
-        {photos.map((photo) => {
+        {visiblePhotos.map((photo) => {
           const isActive = photo.id === currentPhotoId
           return (
             <button
@@ -250,7 +376,7 @@ export default function Filmstrip({
               onMouseEnter={() => preloadAndDecodeImage(api.getFullImageUrl(photo.id))}
               className={clsx(
                 'relative group flex-shrink-0 rounded-lg overflow-hidden transition-all duration-150 cursor-pointer bg-neutral-900 border-2',
-                isHorizontal ? 'h-20 w-24' : 'w-28 h-20',
+                thumbClass,
                 isActive
                   ? 'border-blue-500 ring-2 ring-blue-500/30 shadow-lg shadow-blue-500/20 scale-105 z-10'
                   : 'border-neutral-800 hover:border-neutral-600 opacity-75 hover:opacity-100'

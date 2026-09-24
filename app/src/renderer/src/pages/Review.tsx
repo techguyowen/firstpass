@@ -893,6 +893,11 @@ export default function Review() {
     })
   }, [])
 
+  const handleResetBottomSplitWidth = useCallback(() => {
+    setBottomSplitWidth(420)
+    setReviewStorage('bottom_split_width', String(420))
+  }, [])
+
   useEffect(() => {
     if (photoId) {
       setLastReviewedPhotoId(photoId)
@@ -1424,7 +1429,7 @@ export default function Review() {
         >
           {/* Glowing Drop Zone Overlay */}
           {activeDropZone === 'sidebar' && (
-            <div className="absolute inset-0 bg-blue-500/20 border-2 border-blue-500 rounded-lg shadow-[0_0_20px_rgba(59,130,246,0.6)] backdrop-blur-xs flex items-center justify-center text-blue-300 text-xs font-semibold tracking-wide pointer-events-none z-30 transition-all">
+            <div className="absolute inset-0 bg-blue-500/20 border-2 border-blue-400 rounded-xl backdrop-blur-xs shadow-[0_0_30px_rgba(59,130,246,0.35)] animate-in fade-in duration-100 flex items-center justify-center text-blue-300 text-xs font-semibold tracking-wide pointer-events-none z-30 transition-all">
               Dock into Inspector Sidebar
             </div>
           )}
@@ -2014,6 +2019,12 @@ export default function Review() {
               lightsOutLevel === 2 && "lights-out-blackout pointer-events-none"
             )}
           >
+            {/* Polished universal drop landing marquee for the bottom dock */}
+            {activeDropZone === 'bottom' && (
+              <div className="absolute inset-0 bg-blue-500/20 border-2 border-blue-400 rounded-xl backdrop-blur-xs shadow-[0_0_30px_rgba(59,130,246,0.35)] animate-in fade-in duration-100 flex items-center justify-center text-blue-200 text-xs font-semibold pointer-events-none z-30 transition-all">
+                Release to Dock to Bottom Bar
+              </div>
+            )}
             {/* Horizontal Columns Container */}
             <div
               id="bottom-groups-container"
@@ -2051,7 +2062,7 @@ export default function Review() {
                     >
                       {/* Left Split Drop Target Indicator */}
                       {isSplitLeft && (
-                        <div className="absolute inset-y-0 left-0 w-1/2 bg-blue-500/25 border-2 border-blue-500 rounded-l-xl z-30 flex items-center justify-center text-blue-300 font-semibold text-xs backdrop-blur-xs pointer-events-none">
+                        <div className="absolute inset-y-0 left-0 w-1/2 bg-blue-500/20 border-2 border-blue-400 rounded-xl backdrop-blur-xs shadow-[0_0_30px_rgba(59,130,246,0.35)] animate-in fade-in duration-100 z-30 flex items-center justify-center text-blue-300 font-semibold text-xs pointer-events-none">
                           <Split size={14} className="mr-1 rotate-180" />
                           <span>Split Left</span>
                         </div>
@@ -2059,7 +2070,7 @@ export default function Review() {
 
                       {/* Right Split Drop Target Indicator */}
                       {isSplitRight && (
-                        <div className="absolute inset-y-0 right-0 w-1/2 bg-blue-500/25 border-2 border-blue-500 rounded-r-xl z-30 flex items-center justify-center text-blue-300 font-semibold text-xs backdrop-blur-xs pointer-events-none">
+                        <div className="absolute inset-y-0 right-0 w-1/2 bg-blue-500/20 border-2 border-blue-400 rounded-xl backdrop-blur-xs shadow-[0_0_30px_rgba(59,130,246,0.35)] animate-in fade-in duration-100 z-30 flex items-center justify-center text-blue-300 font-semibold text-xs pointer-events-none">
                           <Split size={14} className="mr-1" />
                           <span>Split Right</span>
                         </div>
@@ -2252,8 +2263,9 @@ export default function Review() {
           {isBottomSideBySide && !isBottomCollapsed && (
             <div
               onMouseDown={startBottomHorizontalSplitResize}
+              onDoubleClick={handleResetBottomSplitWidth}
               className="w-2 hover:w-2.5 -mx-0.5 cursor-col-resize z-20 shrink-0 flex items-center justify-center group/vsplit select-none order-2 self-stretch"
-              title="Drag left/right to resize modules vs filmstrip"
+              title="Drag left/right to resize modules vs filmstrip (Double-click to reset to 420px)"
             >
               <div className="w-1 h-8 bg-neutral-700/80 rounded-full group-hover/vsplit:bg-blue-400 group-active/vsplit:bg-blue-500 transition-colors" />
             </div>
@@ -2316,7 +2328,7 @@ export default function Review() {
                 setActiveBottomTab(moduleId)
               }
             }}
-            className="mx-4 mb-2 h-20 bg-blue-500/15 border-2 border-dashed border-blue-400 rounded-xl flex items-center justify-center text-blue-200 text-xs font-semibold shadow-[0_0_25px_rgba(59,130,246,0.4)] transition-all animate-in fade-in duration-150"
+            className="mx-4 mb-2 h-20 bg-blue-500/20 border-2 border-blue-400 rounded-xl backdrop-blur-xs shadow-[0_0_30px_rgba(59,130,246,0.35)] animate-in fade-in duration-100 flex items-center justify-center text-blue-200 text-xs font-semibold transition-all"
           >
             <div className="flex items-center gap-2">
               <Anchor size={16} className="text-blue-400 animate-bounce" />
@@ -2510,7 +2522,7 @@ export default function Review() {
         >
           {/* Glowing Drop Zone Overlay */}
           {activeDropZone === 'sidebar' && (
-            <div className="absolute inset-0 bg-blue-500/20 border-2 border-blue-500 rounded-lg shadow-[0_0_20px_rgba(59,130,246,0.6)] backdrop-blur-xs flex items-center justify-center text-blue-300 text-xs font-semibold tracking-wide pointer-events-none z-30 transition-all">
+            <div className="absolute inset-0 bg-blue-500/20 border-2 border-blue-400 rounded-xl backdrop-blur-xs shadow-[0_0_30px_rgba(59,130,246,0.35)] animate-in fade-in duration-100 flex items-center justify-center text-blue-300 text-xs font-semibold tracking-wide pointer-events-none z-30 transition-all">
               Dock into Inspector Sidebar
             </div>
           )}
@@ -2721,7 +2733,7 @@ export default function Review() {
       {(scorePanelDock === 'floating' || scorePanelDock === 'collapsed') && !fullscreen && activeDropZone === 'sidebar' && (
         <div
           data-dock-zone="sidebar"
-          className="fixed right-0 top-0 bottom-0 w-80 bg-blue-500/15 border-2 border-dashed border-blue-400 z-50 pointer-events-none flex flex-col items-center justify-center text-blue-200 font-semibold text-sm shadow-[0_0_30px_rgba(59,130,246,0.5)] backdrop-blur-[2px] transition-all animate-in fade-in duration-150"
+          className="fixed right-0 top-0 bottom-0 w-80 bg-blue-500/20 border-2 border-blue-400 rounded-xl backdrop-blur-xs shadow-[0_0_30px_rgba(59,130,246,0.35)] animate-in fade-in duration-100 z-50 pointer-events-none flex flex-col items-center justify-center text-blue-200 font-semibold text-sm transition-all"
         >
           <Sliders size={28} className="mb-2 text-blue-400 animate-bounce" />
           <span>Release to Dock to Inspector Sidebar</span>
