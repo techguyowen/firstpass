@@ -3,7 +3,7 @@ import { FolderUp, Copy, Trash2, CheckCircle2, X, Folder, Sparkles } from 'lucid
 import { api } from '../api/client'
 import { usePhotosStore } from '../store/photosStore'
 import toast from 'react-hot-toast'
-import type { Photo } from '../types/photo'
+import type { JobStatus, Photo } from '../types/photo'
 
 interface ExportModalProps {
   onClose: () => void
@@ -16,6 +16,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
   const [action, setAction] = useState<'copy' | 'move' | 'trash' | 'xmp'>('copy')
   const [destFolder, setDestFolder] = useState<string>('')
   const [exporting, setExporting] = useState(false)
+  const [exportProgress, setExportProgress] = useState<JobStatus | null>(null)
   const [isAutoPickingDuplicates, setIsAutoPickingDuplicates] = useState(false)
 
   const handleAutoPickDuplicates = async () => {
@@ -62,12 +63,16 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
     }
 
     setExporting(true)
+    setExportProgress({ job_id: '', status: 'pending', progress: 0, total: targetPhotos.length, message: 'Starting export...' })
     try {
-      const res = await api.exportPhotos({
-        photo_ids: targetPhotos.map((p) => p.id),
-        action,
-        destination_folder: destFolder || undefined,
-      })
+      const res = await api.exportPhotos(
+        {
+          photo_ids: targetPhotos.map((p) => p.id),
+          action,
+          destination_folder: destFolder || undefined,
+        },
+        (job) => setExportProgress(job)
+      )
 
       if (res.success) {
         toast.success(res.message || `Successfully processed ${res.count} photo(s)!`)
@@ -80,8 +85,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
       toast.error('Export error: ' + (err.message || 'Unknown error'))
     } finally {
       setExporting(false)
+      setExportProgress(null)
     }
   }
+
+  const progressPct = exportProgress && exportProgress.total > 0
+    ? Math.min(100, Math.round((exportProgress.progress / exportProgress.total) * 100))
+    : 0
 
   return (
     <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -110,7 +120,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
             <p className="text-neutral-400 text-xs mb-3">For each duplicate group, automatically keep the sharpest photo and reject the rest.</p>
             <button
               onClick={handleAutoPickDuplicates}
-              disabled={isAutoPickingDuplicates}
+              disabled={isAutoPickingDuplicates || exporting}
               className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer"
             >
               <span>{isAutoPickingDuplicates ? '⏳ Processing…' : '🏆 Auto-Pick Best Duplicates'}</span>
@@ -126,7 +136,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
               <button
                 type="button"
                 onClick={() => setScope('accepted')}
-                className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all ${
+                disabled={exporting}
+                className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all disabled:opacity-40 ${
                   scope === 'accepted'
                     ? 'bg-emerald-600/20 border-emerald-500 text-emerald-300'
                     : 'bg-gray-950 border-gray-800 text-gray-400 hover:border-gray-700'
@@ -136,6 +147,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
               </button>
               <button
                 type="button"
+                disabled={exporting}
                 onClick={() => {
                   setScope('rejected')
                   if (action === 'copy') setAction('trash')
@@ -151,7 +163,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
               <button
                 type="button"
                 onClick={() => setScope('selected')}
-                disabled={selectedIds.length === 0}
+                disabled={selectedIds.length === 0 || exporting}
                 className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all disabled:opacity-40 ${
                   scope === 'selected'
                     ? 'bg-indigo-600/20 border-indigo-500 text-indigo-300'
@@ -168,7 +180,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
             <label className="text-xs font-semibold uppercase tracking-wider text-gray-400 block mb-2">
               Export Action
             </label>
-            <div className="space-y-2">
+            <div className={exporting ? 'space-y-2 opacity-50 pointer-events-none' : 'space-y-2'}>
               <label
                 className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
                   action === 'copy'
@@ -281,7 +293,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
                 <button
                   type="button"
                   onClick={handleSelectFolder}
-                  className="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                  disabled={exporting}
+                  className="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors disabled:opacity-40"
                 >
                   <Folder className="w-3.5 h-3.5" />
                   Browse
@@ -291,11 +304,33 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
           )}
         </div>
 
+        {/* Live export progress */}
+        {exporting && exportProgress && (
+          <div className="rounded-xl border border-gray-800 bg-gray-950 p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-white">
+                Exporting {exportProgress.progress} of {exportProgress.total} photos...
+              </span>
+              <span className="text-xs font-mono text-emerald-400">{progressPct}%</span>
+            </div>
+            <div className="h-2 w-full rounded-full bg-gray-800 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-emerald-500 transition-all duration-300"
+                style={{ width: `${progressPct}%` }}
+              />
+            </div>
+            {exportProgress.message && (
+              <p className="mt-2 text-[11px] text-gray-500 truncate">{exportProgress.message}</p>
+            )}
+          </div>
+        )}
+
         {/* Bottom Actions */}
         <div className="flex items-center justify-end gap-3 pt-5 mt-5 border-t border-gray-800">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-xs font-medium text-gray-400 hover:text-white transition-colors"
+            disabled={exporting}
+            className="px-4 py-2 text-xs font-medium text-gray-400 hover:text-white transition-colors disabled:opacity-40"
           >
             Cancel
           </button>

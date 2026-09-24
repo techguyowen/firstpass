@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Sliders, Trash2, AlertTriangle, FolderOpen, Cpu, Zap, Download, RefreshCw, Github, Sparkles, SlidersHorizontal, Check } from 'lucide-react'
+import { Sliders, Trash2, AlertTriangle, FolderOpen, Cpu, Zap, Download, RefreshCw, Github, Sparkles, SlidersHorizontal, Check, LifeBuoy, ClipboardCopy } from 'lucide-react'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
 import { api } from '../api/client'
-import type { Settings, UpdateCheckResponse } from '../types/photo'
+import type { Settings, SystemInfo, UpdateCheckResponse } from '../types/photo'
 import UpdateModal from '../components/UpdateModal'
 import FirstPassLoader from '../components/FirstPassLoader'
 import {
@@ -99,6 +99,10 @@ export default function Settings() {
   const [updateInfo, setUpdateInfo] = useState<UpdateCheckResponse | null>(null)
   const [showUpdateModal, setShowUpdateModal] = useState(false)
 
+  // Diagnostics & Support
+  const [logPath, setLogPath] = useState<string>('~/.firstpass/firstpass.log')
+  const [copyingDiag, setCopyingDiag] = useState(false)
+
   // Canvas Backdrop & Workspace layout settings
   const [backdrop, setBackdrop] = useState<CanvasBackdropMode>(getStoredCanvasBackdrop)
   const [activeWorkspaceId, setActiveWorkspaceIdState] = useState<string>(getActiveWorkspaceId)
@@ -152,6 +156,7 @@ export default function Settings() {
   useEffect(() => {
     api.getSettings().then(setSettings).catch(() => toast.error('Failed to load settings'))
     api.getStats().then(setStats).catch(() => {})
+    window.electronAPI?.getLogPath?.().then(setLogPath).catch(() => {})
   }, [])
 
   const updateField = (field: keyof Settings, value: any) => {
@@ -196,6 +201,43 @@ export default function Settings() {
       navigate('/')
     } catch {
       toast.error('Failed to reset library')
+    }
+  }
+
+  const handleRevealLogs = async () => {
+    try {
+      await window.electronAPI?.showItemInFolder?.(logPath)
+    } catch {
+      toast.error('Could not open log location')
+    }
+  }
+
+  const formatDiagnostics = (info: SystemInfo): string => {
+    const lines = [
+      '# FirstPass System Diagnostics',
+      '',
+      `- App version: ${info.app_version}`,
+      `- OS: ${info.platform} (${info.os_system} ${info.os_release}, ${info.machine})`,
+      `- Python: ${info.python_version}`,
+      `- GPU: ${info.gpu_name} (${info.gpu_type}, available: ${info.gpu_available ? 'yes' : 'no'})`,
+      `- Photos in library: ${info.total_photos}`,
+      `- Database: ${info.database_path} (${info.database_size_mb} MB)`,
+      `- Log file: ${info.log_path}`,
+      `- Data directory: ${info.data_dir}`,
+    ]
+    return lines.join('\n')
+  }
+
+  const handleCopyDiagnostics = async () => {
+    setCopyingDiag(true)
+    try {
+      const info = await api.getSystemInfo()
+      await navigator.clipboard.writeText(formatDiagnostics(info))
+      toast.success('System diagnostics copied to clipboard!')
+    } catch {
+      toast.error('Failed to copy diagnostics')
+    } finally {
+      setCopyingDiag(false)
     }
   }
 
@@ -371,6 +413,18 @@ export default function Settings() {
             description="Photos with a sharpness score below this will be marked as blurry. Lower = stricter."
             value={settings.blur_threshold} min={5} max={80} step={1}
             onChange={v => updateField('blur_threshold', v)}
+          />
+          <SliderRow
+            label="Exposure Low Threshold"
+            description="Mean brightness below this marks a photo as underexposed. Lower = more tolerant of dark frames."
+            value={settings.exposure_low_threshold} min={0} max={100} step={1}
+            onChange={v => updateField('exposure_low_threshold', v)}
+          />
+          <SliderRow
+            label="Exposure High Threshold"
+            description="Photos with mean brightness above (255 minus this value) are marked as overexposed. Lower = more tolerant of bright frames."
+            value={settings.exposure_high_threshold} min={0} max={100} step={1}
+            onChange={v => updateField('exposure_high_threshold', v)}
           />
           <SliderRow
             label="Auto-Accept Score"
@@ -637,6 +691,36 @@ export default function Settings() {
             </div>
           )}
         </div>
+
+        {/* Diagnostics & Support */}
+        <Section title="Diagnostics & Support" icon={LifeBuoy}>
+          <div className="mb-4">
+            <div className="text-sm font-medium text-neutral-200 mb-1">Log file location</div>
+            <p className="text-xs text-neutral-500 mb-2 font-mono break-all">{logPath}</p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handleRevealLogs}
+                className="flex items-center gap-2 px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold rounded-xl border border-neutral-700 transition-colors"
+              >
+                <FolderOpen size={14} />
+                Reveal Logs in Finder
+              </button>
+              <button
+                type="button"
+                onClick={handleCopyDiagnostics}
+                disabled={copyingDiag}
+                className="flex items-center gap-2 px-4 py-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white text-xs font-semibold rounded-xl transition-colors"
+              >
+                <ClipboardCopy size={14} />
+                {copyingDiag ? 'Copying...' : 'Copy System Diagnostics'}
+              </button>
+            </div>
+          </div>
+          <p className="text-xs text-neutral-500 border-t border-neutral-800 pt-3">
+            FirstPass runs 100% locally on your machine. Your photos and metadata are never uploaded to the cloud.
+          </p>
+        </Section>
 
         <div className="h-8" />
       </div>

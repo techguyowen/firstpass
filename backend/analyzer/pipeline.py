@@ -1,4 +1,5 @@
 import cv2
+import gc
 import numpy as np
 import os
 import io
@@ -192,12 +193,21 @@ def fast_generate_thumbnail_from_path(photo_path: str, photo_id: int, size: int,
     return ""
 
 def compute_overall_score(blur, exposure, aesthetic, composition, faces, blur_res, exp_res, comp_res, detail_res, settings) -> float:
-    score = (
-        blur * settings.weight_blur +
-        exposure * settings.weight_exposure +
-        aesthetic * settings.weight_aesthetic +
-        composition * settings.weight_composition
+    total_weight = (
+        settings.weight_blur +
+        settings.weight_exposure +
+        settings.weight_aesthetic +
+        settings.weight_composition
     )
+    if total_weight > 0:
+        score = (
+            blur * settings.weight_blur +
+            exposure * settings.weight_exposure +
+            aesthetic * settings.weight_aesthetic +
+            composition * settings.weight_composition
+        ) / total_weight
+    else:
+        score = (blur + exposure + aesthetic + composition) / 4.0
     
     # 1. Closed eyes penalty (only for primary VIP subjects, not candid laughter peaks)
     if getattr(settings, 'enable_blink_detection', True) and faces.get('has_closed_eyes', False):
@@ -376,8 +386,8 @@ def analyze_photo_sync(photo_id: int, image_path: str, thumbnails_dir: str, sett
 
         genre = getattr(s, 'active_shoot_genre', 'wedding')
         is_vip = any(f.get("is_vip", False) for f in detected_faces) if detected_faces else False
-            
-        return {
+
+        result = {
             "success": True,
             "blur": blur_res,
             "exposure": exp_res,
@@ -399,6 +409,20 @@ def analyze_photo_sync(photo_id: int, image_path: str, thumbnails_dir: str, sett
             "shoot_genre": genre,
             "exif_meta": meta
         }
+
+        # RAW memory cleanup: release heavy per-photo image buffers (critical
+        # for large RAW batches) before returning to the caller.
+        try:
+            del image_bgr
+        except NameError:
+            pass
+        try:
+            del detected_faces
+        except NameError:
+            pass
+        gc.collect()
+        return result
     except Exception as e:
         print(f"Error analyzing photo {photo_id}: {e}")
+        gc.collect()
         return {"success": False, "error": str(e)}

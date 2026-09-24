@@ -62,7 +62,7 @@ def analyze_blur(image: np.ndarray, settings, detected_faces=None) -> dict:
             if face_boxes_var:
                 subject_var = max(face_boxes_var)
                 # If subject face is sharp but full frame is softer (creamy bokeh background)
-                if subject_var > 45.0 and full_laplacian_var < subject_var * 0.8:
+                if enable_bokeh and subject_var > 45.0 and full_laplacian_var < subject_var * 0.8:
                     is_bokeh = True
                     effective_var = subject_var * 0.90 + full_laplacian_var * 0.10
                 else:
@@ -73,7 +73,7 @@ def analyze_blur(image: np.ndarray, settings, detected_faces=None) -> dict:
             center_patch = gray[max(0, cy - h//4):min(h, cy + h//4), max(0, cx - w//4):min(w, cx + w//4)]
             if center_patch.size > 100:
                 center_var = float(cv2.Laplacian(center_patch, cv2.CV_64F).var())
-                if center_var > 60.0 and full_laplacian_var < center_var * 0.75:
+                if enable_bokeh and center_var > 60.0 and full_laplacian_var < center_var * 0.75:
                     is_bokeh = True
                     effective_var = center_var * 0.85 + full_laplacian_var * 0.15
                 else:
@@ -119,7 +119,9 @@ def analyze_blur(image: np.ndarray, settings, detected_faces=None) -> dict:
             # Severe camera jitter penalty
             blur_score = max(0.0, blur_score - 20.0)
             
-        is_blurry = blur_score < threshold and not is_motion_intentional and not is_bokeh
+        if not enable_bokeh:
+            is_bokeh = False
+        is_blurry = blur_score < threshold and not is_motion_intentional and not (is_bokeh and enable_bokeh)
         
         return {
             "blur_score": round(float(blur_score), 1),

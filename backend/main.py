@@ -93,10 +93,60 @@ from backend.routers import scan, analyze, review, settings as settings_router, 
 # ── GPU detection ──────────────────────────────────────────────────────────
 from backend.analyzer.gpu import get_gpu_info
 
+# ── Parent watchdog (zombie & port-lock prevention) ───────────────────────
+def _start_parent_watchdog() -> None:
+    """Exit if the parent Electron process dies, so no orphaned backend
+    ever holds port 58765 or SQLite locks after Electron is killed/crashes."""
+    import threading
+    import time
+
+    initial_ppid = os.getppid()
+
+    def _parent_alive_unix() -> bool:
+        new_ppid = os.getppid()
+        return new_ppid != 1 and new_ppid == initial_ppid
+
+    def _parent_alive_windows() -> bool:
+        try:
+            import psutil  # type: ignore
+            return bool(psutil.pid_exists(initial_ppid))
+        except ImportError:
+            pass
+        try:
+            import ctypes
+            handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, initial_ppid)
+            if handle:
+                ctypes.windll.kernel32.CloseHandle(handle)
+                return True
+            return False
+        except Exception:
+            return True  # fail-open: never kill backend on watchdog error
+
+    def _watch() -> None:
+        while True:
+            time.sleep(4)
+            try:
+                alive = _parent_alive_windows() if sys.platform == "win32" else _parent_alive_unix()
+                if not alive:
+                    new_ppid = os.getppid()
+                    logger.warning(
+                        f"Parent process exited (PID changed to {new_ppid}). "
+                        "Shutting down FirstPass backend."
+                    )
+                    os._exit(0)
+            except Exception as e:
+                logger.debug(f"Parent watchdog check failed: {e}")
+
+    t = threading.Thread(target=_watch, daemon=True, name="parent-watchdog")
+    t.start()
+    logger.info(f"Parent watchdog watching PPID {initial_ppid}.")
+
+
 # ── Lifespan ───────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting FirstPass backend...")
+    _start_parent_watchdog()
     logger.info(f"Data directory: {DATA_DIR}")
     logger.info(f"Database:       {DB_PATH}")
     logger.info(f"Thumbnails:     {THUMBNAILS_DIR}")

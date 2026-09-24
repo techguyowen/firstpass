@@ -35,8 +35,24 @@ def analyze_worker(job_id: str, photo_ids: list[int] = None, force_reanalyze: bo
             "weight_exposure": settings.weight_exposure,
             "weight_aesthetic": settings.weight_aesthetic,
             "weight_composition": settings.weight_composition,
+            "enable_blink_detection": settings.enable_blink_detection,
+            "enable_smile_detection": settings.enable_smile_detection,
+            "enable_group_consistency": settings.enable_group_consistency,
+            "enable_bokeh_detection": settings.enable_bokeh_detection,
+            "enable_camera_shake": settings.enable_camera_shake,
+            "enable_burst_grouping": settings.enable_burst_grouping,
+            "enable_scene_chapters": settings.enable_scene_chapters,
+            "enable_preference_learning": settings.enable_preference_learning,
+            "enable_explainable_ai": settings.enable_explainable_ai,
+            "enable_genre_awareness": settings.enable_genre_awareness,
+            "active_shoot_genre": settings.active_shoot_genre,
+            "target_delivery_count": settings.target_delivery_count,
+            "learned_blur_bias": settings.learned_blur_bias,
+            "learned_accept_bias": settings.learned_accept_bias,
+            "burst_time_threshold": settings.burst_time_threshold,
+            "duplicate_hash_distance": settings.duplicate_hash_distance,
         }
-        
+
         if force_reanalyze:
             query = db.query(Photo)
             if photo_ids:
@@ -257,6 +273,22 @@ def reanalyze_single_photo(photo_id: int, db: Session = Depends(get_db)):
         "weight_exposure": settings.weight_exposure,
         "weight_aesthetic": settings.weight_aesthetic,
         "weight_composition": settings.weight_composition,
+        "enable_blink_detection": settings.enable_blink_detection,
+        "enable_smile_detection": settings.enable_smile_detection,
+        "enable_group_consistency": settings.enable_group_consistency,
+        "enable_bokeh_detection": settings.enable_bokeh_detection,
+        "enable_camera_shake": settings.enable_camera_shake,
+        "enable_burst_grouping": settings.enable_burst_grouping,
+        "enable_scene_chapters": settings.enable_scene_chapters,
+        "enable_preference_learning": settings.enable_preference_learning,
+        "enable_explainable_ai": settings.enable_explainable_ai,
+        "enable_genre_awareness": settings.enable_genre_awareness,
+        "active_shoot_genre": settings.active_shoot_genre,
+        "target_delivery_count": settings.target_delivery_count,
+        "learned_blur_bias": settings.learned_blur_bias,
+        "learned_accept_bias": settings.learned_accept_bias,
+        "burst_time_threshold": settings.burst_time_threshold,
+        "duplicate_hash_distance": settings.duplicate_hash_distance,
     }
 
     res = analyze_photo_sync(photo_id, photo.path, thumbnails_dir, settings_dict)
@@ -285,6 +317,7 @@ def reanalyze_single_photo(photo_id: int, db: Session = Depends(get_db)):
     photo.lighting_type = res.get("lighting_type", "standard")
     photo.is_vip_focused = res.get("is_vip_focused", False)
     photo.reasons_json = res.get("reasons_json")
+    photo.status = res['status']
 
     # Delete old thumbnail to force regeneration
     thumb_path = os.path.join(thumbnails_dir, f"{photo_id}.jpg")

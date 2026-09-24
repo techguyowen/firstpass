@@ -9,14 +9,17 @@ import logging
 from pathlib import Path
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func
 
-from backend.database import get_db, DATA_DIR
+import uuid
+
+from backend.database import get_db, DATA_DIR, SessionLocal
 from backend.models.photo import Photo as PhotoModel, Settings as SettingsModel
-from backend.schemas.photo import PhotoResponse, ExportRequest, TargetQuotaRequest
+from backend.schemas.photo import PhotoResponse, ExportRequest, TargetQuotaRequest, JobStatus
+from backend.jobs import jobs, jobs_lock
 from backend.analyzer.delivery import calculate_target_quota, calculate_camera_alignment
 
 logger = logging.getLogger(__name__)
@@ -138,7 +141,7 @@ def get_photos(
         if is_smiling:
             query = query.filter(PhotoModel.smile_score > 30.0)
         else:
-            query = query.filter(or_(PhotoModel.smile_score == None, PhotoModel.smile_score <= 30.0))
+            query = query.filter(or_(PhotoModel.smile_score.is_(None), PhotoModel.smile_score <= 30.0))
     if is_raw is not None:
         query = query.filter(PhotoModel.is_raw == is_raw)
     if is_detail_shot is not None:
@@ -248,6 +251,10 @@ def get_thumbnail(photo_id: int, db: Session = Depends(get_db)):
     if not photo:
         raise HTTPException(status_code=404, detail="Photo not found")
 
+    if not photo.path or not os.path.exists(photo.path):
+        logger.warning(f"Thumbnail requested for offline/unmounted file: photo {photo_id} ({photo.path})")
+        raise HTTPException(status_code=404, detail="Photo file offline or unmounted")
+
     thumb_path = THUMBNAILS_DIR / f"{photo_id}.jpg"
     if thumb_path.exists():
         try:
@@ -298,7 +305,8 @@ def get_full_image(photo_id: int, db: Session = Depends(get_db)):
 
     path = Path(photo.path)
     if not path.exists():
-        raise HTTPException(status_code=404, detail="File not found on disk")
+        logger.warning(f"Full image requested for offline/unmounted file: photo {photo_id} ({photo.path})")
+        raise HTTPException(status_code=404, detail="Photo file offline or unmounted")
 
     if path.suffix.lower() in RAW_EXTENSIONS:
         # Check disk cache for preview first (ultra-fast <1ms SSD hit)
@@ -400,6 +408,9 @@ def get_face_crop(photo_id: int, face_index: int, db: Session = Depends(get_db))
     photo = db.query(PhotoModel).filter(PhotoModel.id == photo_id).first()
     if not photo or not photo.detected_faces_json:
         raise HTTPException(status_code=404, detail="Face data not found")
+    if not photo.path or not os.path.exists(photo.path):
+        logger.warning(f"Face crop requested for offline/unmounted file: photo {photo_id} ({photo.path})")
+        raise HTTPException(status_code=404, detail="Photo file offline or unmounted")
     import json
     import cv2
     from backend.analyzer.pipeline import load_image
@@ -480,41 +491,84 @@ def get_duplicate_groups(db: Session = Depends(get_db)):
     return [{"group_id": gid, "photos": photos} for gid, photos in groups.items()]
 
 
-# ── Export ─────────────────────────────────────────────────────────────────────
+# ── Export (async background job with progress) ──────────────────────────────────
 
-@router.post("/export")
-def export_photos(req: ExportRequest, db: Session = Depends(get_db)):
-    if req.action not in ("move", "copy", "trash", "mark_only", "xmp"):
-        raise HTTPException(status_code=400, detail="Invalid action")
+# Final per-job export summaries (JobStatus carries live progress only).
+export_results: dict = {}
+_export_results_lock = threading.Lock()
 
-    photos = db.query(PhotoModel).filter(PhotoModel.id.in_(req.photo_ids)).all()
-    if not photos:
-        raise HTTPException(status_code=400, detail="No photos found")
 
-    if req.action == "mark_only":
-        return {"success": True, "count": len(photos), "message": "Photos marked as rejected."}
+def _trash_path_safely(path_str: str):
+    """Send a file to the OS trash.
 
-    if req.action == "xmp":
+    On volumes without trash support (e.g. FAT32/exFAT external drives),
+    record a clear error and leave the file in place instead of deleting it.
+    Returns (trashed: bool, error: str).
+    """
+    try:
+        import send2trash
+    except ImportError:
+        return False, "send2trash not available"
+    try:
+        send2trash.send2trash(path_str)
+        return True, ""
+    except Exception as e:
+        msg = str(e) or "trash failed"
+        lowered = msg.lower()
+        if any(k in lowered for k in (
+            "trash", "unsupported", "not supported", "no trash",
+            "operation not permitted", "errno 95", "[errno 95]",
+        )):
+            return False, f"Trash unsupported on this drive ({msg}); file left in place"
+        return False, msg
+
+
+def _set_export_progress(job_id: str, done: int, total: int) -> None:
+    with jobs_lock:
+        if job_id in jobs:
+            jobs[job_id].progress = done
+            jobs[job_id].message = f"Exporting {done} of {total}..."
+
+
+def export_worker(job_id: str, photo_ids: list, action: str, destination_folder: Optional[str]) -> None:
+    """Background export worker — updates jobs[job_id] progress per photo."""
+    db = SessionLocal()
+    try:
+        photos = db.query(PhotoModel).filter(PhotoModel.id.in_(photo_ids)).all()
+        total = len(photos)
+        with jobs_lock:
+            jobs[job_id].total = total
+            jobs[job_id].status = "running"
+            jobs[job_id].message = f"Exporting 0 of {total}..."
+        if not photos:
+            raise ValueError("No photos found")
+
         count = 0
-        errors = []
-        for p in photos:
-            try:
-                src = Path(p.path)
-                if not src.exists():
-                    errors.append(f"{p.filename} not found")
-                    continue
+        errors: List[str] = []
 
-                if p.status == "accepted":
-                    rating = 5
-                    label = "Green"
-                elif p.status == "rejected":
-                    rating = 1
-                    label = "Red"
-                else:
-                    rating = 0
-                    label = ""
+        if action == "mark_only":
+            count = total
+            with jobs_lock:
+                jobs[job_id].progress = total
 
-                xmp_content = f"""<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="FirstPass XMP Core 1.0">
+        elif action == "xmp":
+            for i, p in enumerate(photos):
+                try:
+                    src = Path(p.path)
+                    if not src.exists():
+                        errors.append(f"{p.filename} not found")
+                    else:
+                        if p.status == "accepted":
+                            rating = 5
+                            label = "Green"
+                        elif p.status == "rejected":
+                            rating = 1
+                            label = "Red"
+                        else:
+                            rating = 0
+                            label = ""
+
+                        xmp_content = f"""<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="FirstPass XMP Core 1.0">
  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
   <rdf:Description rdf:about=""
     xmlns:xmp="http://ns.adobe.com/xap/1.0/">
@@ -524,88 +578,148 @@ def export_photos(req: ExportRequest, db: Session = Depends(get_db)):
  </rdf:RDF>
 </x:xmpmeta>
 """
-                sidecar1 = src.parent / f"{src.stem}.xmp"
-                sidecar2 = src.parent / f"{src.name}.xmp"
-                sidecar1.write_text(xmp_content, encoding="utf-8")
-                if sidecar1 != sidecar2:
-                    sidecar2.write_text(xmp_content, encoding="utf-8")
-                count += 1
-            except Exception as e:
-                errors.append(str(e))
-
-        msg = f"Created industry-standard XMP sidecars for {count} photo(s)."
-        if errors:
-            msg += f" ({len(errors)} errors)"
-        return {"success": True, "count": count, "message": msg}
-
-    if req.action == "trash":
-        try:
-            import send2trash
-            count = 0
-            errors = []
-            for p in photos:
-                try:
-                    send2trash.send2trash(p.path)
-                    db.delete(p)
-                    count += 1
+                        sidecar1 = src.parent / f"{src.stem}.xmp"
+                        sidecar2 = src.parent / f"{src.name}.xmp"
+                        sidecar1.write_text(xmp_content, encoding="utf-8")
+                        if sidecar1 != sidecar2:
+                            sidecar2.write_text(xmp_content, encoding="utf-8")
+                        count += 1
                 except Exception as e:
                     errors.append(str(e))
-            db.commit()
-            msg = f"Moved {count} photo(s) to trash."
-            if errors:
-                msg += f" {len(errors)} error(s)."
-            return {"success": True, "count": count, "message": msg}
-        except ImportError:
-            raise HTTPException(status_code=500, detail="send2trash not available")
+                _set_export_progress(job_id, i + 1, total)
 
-    if req.action in ("move", "copy"):
-        if not req.destination_folder:
-            raise HTTPException(status_code=400, detail="destination_folder is required")
-        dest = Path(req.destination_folder)
-        dest.mkdir(parents=True, exist_ok=True)
-        count = 0
-        errors = []
-        for p in photos:
-            src = Path(p.path)
-            if not src.exists():
-                errors.append(f"{p.filename} not found")
-                continue
-            dst = dest / src.name
-            # Avoid overwriting by appending counter
-            counter = 1
-            while dst.exists():
-                dst = dest / f"{src.stem}_{counter}{src.suffix}"
-                counter += 1
-            try:
-                if req.action == "move":
-                    try:
-                        shutil.move(str(src), str(dst))
-                        if not dst.exists():
-                            raise IOError(f"Moved file missing at destination {dst}")
-                        p.path = str(dst)
-                        p.folder = str(dst.parent)
-                        db.commit()
+        elif action == "trash":
+            for i, p in enumerate(photos):
+                try:
+                    ok, err = _trash_path_safely(p.path)
+                    if ok:
+                        db.delete(p)
                         count += 1
-                    except Exception as e:
-                        db.rollback()
-                        # Rollback file move if src missing and dst exists
-                        if not src.exists() and dst.exists():
-                            try:
-                                shutil.move(str(dst), str(src))
-                            except Exception as rollback_err:
-                                logger.error(f"Failed to rollback file move {dst} -> {src}: {rollback_err}")
-                        errors.append(f"{p.filename}: {e}")
-                else:
-                    shutil.copy2(str(src), str(dst))
-                    count += 1
-            except Exception as e:
-                errors.append(str(e))
-        db.commit()
-        verb = "Moved" if req.action == "move" else "Copied"
-        msg = f"{verb} {count} photo(s) to {dest}."
+                    else:
+                        errors.append(f"{p.filename}: {err}")
+                except Exception as e:
+                    errors.append(f"{p.filename}: {e}")
+                _set_export_progress(job_id, i + 1, total)
+            db.commit()
+
+        elif action in ("move", "copy"):
+            dest = Path(destination_folder or "")
+            dest.mkdir(parents=True, exist_ok=True)
+            for i, p in enumerate(photos):
+                src = Path(p.path)
+                if not src.exists():
+                    errors.append(f"{p.filename} not found")
+                    _set_export_progress(job_id, i + 1, total)
+                    continue
+                dst = dest / src.name
+                # Avoid overwriting by appending counter
+                counter = 1
+                while dst.exists():
+                    dst = dest / f"{src.stem}_{counter}{src.suffix}"
+                    counter += 1
+                try:
+                    if action == "move":
+                        try:
+                            shutil.move(str(src), str(dst))
+                            if not dst.exists():
+                                raise IOError(f"Moved file missing at destination {dst}")
+                            p.path = str(dst)
+                            p.folder = str(dst.parent)
+                            db.commit()
+                            count += 1
+                        except Exception as e:
+                            db.rollback()
+                            # Rollback file move if src missing and dst exists
+                            if not src.exists() and dst.exists():
+                                try:
+                                    shutil.move(str(dst), str(src))
+                                except Exception as rollback_err:
+                                    logger.error(f"Failed to rollback file move {dst} -> {src}: {rollback_err}")
+                            errors.append(f"{p.filename}: {e}")
+                    else:
+                        shutil.copy2(str(src), str(dst))
+                        count += 1
+                except Exception as e:
+                    errors.append(str(e))
+                _set_export_progress(job_id, i + 1, total)
+            db.commit()
+
+        msg = f"Exported {count} photo(s)."
         if errors:
-            msg += f" {len(errors)} error(s)."
-        return {"success": True, "count": count, "message": msg}
+            msg += f" ({len(errors)} error(s))"
+        with jobs_lock:
+            jobs[job_id].status = "done"
+            jobs[job_id].progress = total
+            jobs[job_id].message = msg
+        with _export_results_lock:
+            export_results[job_id] = {
+                "success": True,
+                "count": count,
+                "processed": total,
+                "failed": len(errors),
+                "message": msg,
+                "errors": errors[:50],
+            }
+    except Exception as e:
+        logger.error(f"Export job {job_id} failed: {e}")
+        with jobs_lock:
+            jobs[job_id].status = "error"
+            jobs[job_id].message = f"Export failed: {e}"
+        with _export_results_lock:
+            export_results[job_id] = {
+                "success": False, "count": 0, "processed": 0,
+                "failed": 0, "message": f"Export failed: {e}",
+            }
+    finally:
+        db.close()
+
+
+@router.post("/export")
+def export_photos(req: ExportRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    """Start an async export job (returns immediately with a job_id).
+
+    Poll GET /api/jobs/{job_id} for live progress, or
+    GET /api/export/result/{job_id} for the final ExportResult summary.
+    """
+    if req.action not in ("move", "copy", "trash", "mark_only", "xmp"):
+        raise HTTPException(status_code=400, detail="Invalid action")
+    if req.action in ("move", "copy") and not req.destination_folder:
+        raise HTTPException(status_code=400, detail="destination_folder is required")
+
+    total = db.query(PhotoModel).filter(PhotoModel.id.in_(req.photo_ids)).count()
+    if not total:
+        raise HTTPException(status_code=400, detail="No photos found")
+
+    job_id = str(uuid.uuid4())
+    with jobs_lock:
+        jobs[job_id] = JobStatus(
+            job_id=job_id,
+            status="pending",
+            progress=0,
+            total=total,
+            message="Queuing export...",
+        )
+    background_tasks.add_task(export_worker, job_id, list(req.photo_ids), req.action, req.destination_folder)
+    return {"job_id": job_id, "total": total}
+
+
+@router.get("/export/result/{job_id}")
+def get_export_result(job_id: str):
+    """Return the final ExportResult summary for an export job."""
+    with _export_results_lock:
+        if job_id in export_results:
+            return export_results[job_id]
+    with jobs_lock:
+        if job_id in jobs:
+            j = jobs[job_id]
+            return {
+                "success": j.status == "done",
+                "count": j.progress,
+                "processed": j.total,
+                "failed": max(0, j.total - j.progress),
+                "message": j.message,
+            }
+    raise HTTPException(status_code=404, detail="Export job not found")
 
 
 # ── Folders Management ─────────────────────────────────────────────────────────

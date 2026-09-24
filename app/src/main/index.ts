@@ -772,6 +772,15 @@ app.whenReady().then(() => {
 
   ipcMain.handle('get-api-secret', () => apiSecret)
 
+  ipcMain.handle('show-item-in-folder', async (_, fullPath: string) => {
+    shell.showItemInFolder(fullPath)
+    return true
+  })
+  ipcMain.handle('get-log-path', () => {
+    const dataDir = join(homedir(), '.firstpass')
+    return join(dataDir, 'firstpass.log')
+  })
+
   ipcMain.on('update-menu-state', (_, state) => {
     if (state && typeof state === 'object') {
       currentMenuState = { ...currentMenuState, ...state }

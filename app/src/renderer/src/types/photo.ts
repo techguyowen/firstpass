@@ -128,6 +128,24 @@ export interface ExportResult {
   message?: string;
 }
 
+export interface SystemInfo {
+  app_version: string;
+  platform: string;
+  os_system: string;
+  os_release: string;
+  machine: string;
+  python_version: string;
+  gpu_available: boolean;
+  gpu_type: string;
+  gpu_name: string;
+  log_path: string;
+  data_dir: string;
+  database_path: string;
+  database_size_bytes: number;
+  database_size_mb: number;
+  total_photos: number;
+}
+
 export interface HealthResponse {
   status: string;
   gpu_available: boolean;

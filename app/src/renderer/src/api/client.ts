@@ -4,7 +4,7 @@ import type {
   DuplicateGroup, ExportRequest, ExportResult, Settings,
   UpdateCheckResponse, UpdateProgressResponse, FaceCrop,
   FoldersResponse, FolderInfo, TargetQuotaRequest, TargetQuotaResult,
-  CameraAlignmentResponse
+  CameraAlignmentResponse, SystemInfo
 } from '../types/photo'
 
 const BASE_URL = 'http://localhost:58765'
@@ -120,8 +120,51 @@ export const api = {
     return data
   },
 
-  async exportPhotos(req: ExportRequest): Promise<ExportResult> {
-    const { data } = await axiosInstance.post('/api/export', req)
+  async exportPhotos(req: ExportRequest, onProgress?: (job: JobStatus) => void): Promise<ExportResult> {
+    // POST returns immediately with { job_id, total }; poll for completion
+    // so large RAW batches never hit an HTTP timeout.
+    const { data } = await axiosInstance.post('/api/export', req, { timeout: 300000 })
+
+    // Backward compatibility: older backends return the ExportResult directly.
+    if (!data || typeof data.job_id !== 'string') {
+      return data as ExportResult
+    }
+
+    const jobId = data.job_id as string
+    const deadline = Date.now() + 5 * 60 * 1000
+    let job: JobStatus = { job_id: jobId, status: 'pending', progress: 0, total: data.total || 0, message: 'Queuing export...' }
+
+    for (;;) {
+      const { data: status } = await axiosInstance.get(`/api/jobs/${jobId}`)
+      job = status as JobStatus
+      onProgress?.(job)
+      if (job.status === 'done' || job.status === 'error') break
+      if (Date.now() > deadline) {
+        throw new Error('Export timed out after 5 minutes')
+      }
+      await new Promise((r) => setTimeout(r, 500))
+    }
+
+    if (job.status === 'error') {
+      throw new Error(job.message || 'Export failed')
+    }
+
+    try {
+      const { data: result } = await axiosInstance.get(`/api/export/result/${jobId}`)
+      return result as ExportResult
+    } catch {
+      return {
+        success: true,
+        count: job.progress,
+        processed: job.total,
+        failed: Math.max(0, job.total - job.progress),
+        message: job.message,
+      }
+    }
+  },
+
+  async getSystemInfo(): Promise<SystemInfo> {
+    const { data } = await axiosInstance.get('/api/system/info')
     return data
   },
 

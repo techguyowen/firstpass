@@ -3,11 +3,15 @@ Settings router — get/update app settings, reset library.
 """
 
 import logging
+import os
+import platform
 import re
+import sys
+from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from backend.database import get_db
+from backend.database import get_db, DATA_DIR
 from backend.models.photo import Settings as SettingsModel, Photo as PhotoModel
 from backend.schemas.photo import SettingsUpdate
 
@@ -99,6 +103,55 @@ def reset_learning(db: Session = Depends(get_db)):
         db.commit()
         db.refresh(settings)
     return {"success": True, "message": "Learned preference biases reset to 0."}
+
+
+@router.get("/system/info")
+def get_system_info(db: Session = Depends(get_db)):
+    """Support diagnostics: app/OS/Python/GPU versions, log path, DB size, photo count."""
+    try:
+        from backend.routers.updater import CURRENT_VERSION as app_version
+    except Exception:
+        app_version = "1.0.1"
+
+    try:
+        from backend.analyzer.gpu import get_gpu_info
+        gpu_info = get_gpu_info()
+    except Exception as e:
+        logger.warning(f"GPU info unavailable for diagnostics: {e}")
+        gpu_info = {"available": False, "type": "cpu", "name": "CPU"}
+
+    data_dir = Path(str(DATA_DIR))
+    log_path = data_dir / "firstpass.log"
+    db_path = Path(os.environ.get(
+        "FIRSTPASS_DB_PATH",
+        os.environ.get("PHOTO_CULLER_DB_PATH", str(data_dir / "photos.db")),
+    ))
+    try:
+        database_size_bytes = db_path.stat().st_size if db_path.exists() else 0
+    except Exception:
+        database_size_bytes = 0
+    try:
+        total_photos = db.query(PhotoModel).count()
+    except Exception:
+        total_photos = 0
+
+    return {
+        "app_version": app_version,
+        "platform": platform.platform(),
+        "os_system": platform.system(),
+        "os_release": platform.release(),
+        "machine": platform.machine(),
+        "python_version": sys.version.split()[0],
+        "gpu_available": bool(gpu_info.get("available")),
+        "gpu_type": gpu_info.get("type", "cpu"),
+        "gpu_name": gpu_info.get("name", "CPU"),
+        "log_path": str(log_path),
+        "data_dir": str(data_dir),
+        "database_path": str(db_path),
+        "database_size_bytes": database_size_bytes,
+        "database_size_mb": round(database_size_bytes / (1024 * 1024), 2),
+        "total_photos": total_photos,
+    }
 
 
 @router.delete("/reset")

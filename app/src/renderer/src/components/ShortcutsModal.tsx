@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react'
-import { X, Keyboard, ArrowRight, Eye, Columns, Grid, Undo2 } from 'lucide-react'
+import { X, Keyboard, ArrowRight, Eye, Columns, Grid, Undo2, Zap, Layers } from 'lucide-react'
 
 interface ShortcutsModalProps {
   isOpen: boolean
@@ -32,6 +32,37 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
   if (!isOpen) return null
 
   const sections: ShortcutSection[] = [
+    {
+      title: 'Culling Actions',
+      icon: <Zap size={16} className="text-emerald-400" />,
+      shortcuts: [
+        { keys: ['A'], label: 'Accept (keep photo)' },
+        { keys: ['R'], label: 'Reject photo' },
+        { keys: ['Space'], label: 'Skip / Toggle' },
+        { keys: ['Z', '⌘ / Ctrl', 'Z'], label: 'Undo' },
+        { keys: ['⌘ / Ctrl', '⇧', 'Z'], label: 'Redo' }
+      ]
+    },
+    {
+      title: 'Navigation',
+      icon: <ArrowRight size={16} className="text-blue-400" />,
+      shortcuts: [
+        { keys: ['←', '→'], label: 'Previous / Next photo' },
+        { keys: ['Home', 'End'], label: 'First / Last photo' },
+        { keys: ['F'], label: 'Fullscreen' }
+      ]
+    },
+    {
+      title: 'Views & Panels',
+      icon: <Layers size={16} className="text-amber-400" />,
+      shortcuts: [
+        { keys: ['1', '2', '3', '4', '5'], label: 'Star ratings' },
+        { keys: ['P'], label: 'Pin VIP face' },
+        { keys: ['Tab'], label: 'Toggle Inspector panel' },
+        { keys: ['H'], label: 'Histogram mode' },
+        { keys: ['?'], label: 'Show this help dialog' }
+      ]
+    },
     {
       title: 'Gallery Grid',
       icon: <Grid size={16} className="text-blue-400" />,
