@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import {
   Check, X, SkipForward, Bookmark, GripVertical, MoreVertical,
-  ArrowDown, ArrowLeft, ArrowRight, Move, Maximize2, Minimize2, PanelRight
+  ArrowDown, ArrowLeft, ArrowRight, Move, Maximize2, Minimize2, PanelRight, RotateCcw
 } from 'lucide-react'
 import clsx from 'clsx'
 import { dockDragManager } from '../utils/dockDragManager'

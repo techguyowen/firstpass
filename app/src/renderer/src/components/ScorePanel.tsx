@@ -253,7 +253,7 @@ export default function ScorePanel({
   onStatus,
   onToggleTag,
 }: ScorePanelProps) {
-  const { startAnalysis, isAnalyzing, setPhotoStatusWithHistory, togglePhotoTag } = usePhotosStore()
+  const { startAnalysis, isAnalyzing, setPhotoStatusWithUndo, togglePhotoTag } = usePhotosStore()
   const isShakeRisk = checkCameraShake(photo.shutter_speed, photo.focal_length)
 
   const getPlacement = (id: string): PanelDockPlacement => {
@@ -1037,7 +1037,7 @@ export default function ScorePanel({
       <CullingActionBar
         status={photo.status}
         isTagged={Boolean(photo.is_tagged)}
-        onStatus={onStatus || ((st) => setPhotoStatusWithHistory(photo.id, st))}
+        onStatus={onStatus || ((st) => setPhotoStatusWithUndo(photo.id, st))}
         onToggleTag={onToggleTag || (() => togglePhotoTag(photo.id))}
         placement="sidebar"
         onSetPlacement={onSetTriagePlacement}
@@ -1271,7 +1271,7 @@ export default function ScorePanel({
           <CullingActionBar
             status={photo.status}
             isTagged={Boolean(photo.is_tagged)}
-            onStatus={onStatus || ((st) => setPhotoStatusWithHistory(photo.id, st))}
+            onStatus={onStatus || ((st) => setPhotoStatusWithUndo(photo.id, st))}
             onToggleTag={onToggleTag || (() => togglePhotoTag(photo.id))}
             placement="sidebar"
             onSetPlacement={onSetTriagePlacement}
@@ -1730,7 +1730,7 @@ export function InspectorModuleContent({
         <CullingActionBar
           status={photo.status}
           isTagged={Boolean(photo.is_tagged)}
-          onStatus={(st) => usePhotosStore.getState().setPhotoStatusWithHistory(photo.id, st)}
+          onStatus={(st) => usePhotosStore.getState().setPhotoStatusWithUndo(photo.id, st)}
           onToggleTag={() => usePhotosStore.getState().togglePhotoTag(photo.id)}
           placement="sidebar"
           scale={compact ? 'compact' : 'standard'}
