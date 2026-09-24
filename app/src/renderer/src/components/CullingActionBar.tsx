@@ -10,6 +10,10 @@ import { dockDragManager } from '../utils/dockDragManager'
 export type TriagePlacement = 'bottom' | 'side-left' | 'side-right' | 'floating' | 'sidebar'
 export type TriageScale = 'compact' | 'standard' | 'large'
 
+const MIN_FLOAT_WIDTH = 220
+const MAX_FLOAT_WIDTH = 480
+const NARROW_FLOAT_ICON_THRESHOLD = 380
+
 export interface CullingActionBarProps {
   status?: 'accepted' | 'rejected' | 'pending'
   isTagged?: boolean
@@ -82,13 +86,13 @@ export default function CullingActionBar({
       const saved = localStorage.getItem('photo_culler_triage_float_width')
       if (saved) {
         const val = parseFloat(saved)
-        if (isNaN(val) || val < 400) {
+        if (isNaN(val)) {
           try {
             localStorage.removeItem('photo_culler_triage_float_width')
           } catch {}
           return undefined
         }
-        if (val <= 1000) return Math.max(420, val)
+        return Math.min(MAX_FLOAT_WIDTH, Math.max(MIN_FLOAT_WIDTH, val))
       }
     } catch {}
     return undefined
@@ -138,6 +142,12 @@ export default function CullingActionBar({
       localStorage.setItem('photo_culler_triage_scale', newScale)
     } catch {}
     if (onSetScale) onSetScale(newScale)
+    const presetWidth =
+      newScale === 'compact' ? 240 : newScale === 'large' ? MAX_FLOAT_WIDTH : 420
+    setFloatWidth(presetWidth)
+    try {
+      localStorage.setItem('photo_culler_triage_float_width', String(presetWidth))
+    } catch {}
     setMenuAnchor(null)
   }
 
@@ -252,7 +262,7 @@ export default function CullingActionBar({
 
     const handlePointerMove = (ev: PointerEvent) => {
       const deltaX = ev.clientX - startX
-      const newWidth = Math.min(1000, Math.max(420, startWidth + deltaX))
+      const newWidth = Math.min(MAX_FLOAT_WIDTH, Math.max(MIN_FLOAT_WIDTH, startWidth + deltaX))
       setFloatWidth(newWidth)
     }
 
@@ -325,6 +335,23 @@ export default function CullingActionBar({
         showText: true,
       }
 
+  // Floating width bounds + adaptive density. Narrow float widths (or the
+  // Compact scale) collapse to icon-only square buttons so labels can never
+  // squash into single-letter ellipses.
+  const isFloating = placement === 'floating'
+  const useDistributedRow = !isSidebar && !isVertical
+  const narrowFloatIconOnly =
+    isFloating && floatWidth !== undefined && floatWidth < NARROW_FLOAT_ICON_THRESHOLD
+  const iconOnly = isCompact || narrowFloatIconOnly
+  const showText = !iconOnly && scaleClasses.showText
+  const actionBtnClass = iconOnly
+    ? 'w-9 h-9 p-2 rounded-xl flex items-center justify-center'
+    : scaleClasses.btn
+  // In floating text mode, let buttons share extra width evenly so the bar
+  // fills toward MAX_FLOAT_WIDTH without dead gaps on the right.
+  const floatingFillClass =
+    isFloating && !iconOnly ? 'flex-1 max-w-[100px] min-w-[72px]' : ''
+
   return (
     <div
       ref={barRef}
@@ -339,7 +366,8 @@ export default function CullingActionBar({
         placement === 'bottom' && 'flex items-center justify-center py-2 flex-shrink-0',
         placement === 'side-left' && 'absolute left-4 top-1/2 -translate-y-1/2',
         placement === 'side-right' && 'absolute right-4 top-1/2 -translate-y-1/2',
-        placement === 'floating' && 'fixed'
+        placement === 'floating' && 'fixed',
+        placement === 'floating' && 'max-w-[480px]'
       )}
       style={
         placement === 'floating'
@@ -356,11 +384,11 @@ export default function CullingActionBar({
           'bg-neutral-900/95 backdrop-blur-md border border-neutral-700/80 rounded-2xl shadow-2xl transition-all',
           isSidebar
             ? 'grid grid-cols-2 gap-1.5 w-full p-2'
-            : 'flex items-center w-auto min-w-max',
+            : isFloating && floatWidth
+              ? 'flex items-center w-full'
+              : 'flex items-center w-auto min-w-max',
           !isSidebar && (isVertical ? 'flex-col' : 'flex-row'),
-          !isSidebar && scaleClasses.container,
-          placement === 'floating' && Boolean(floatWidth) && 'w-full',
-          !isSidebar && 'flex items-center gap-2 px-3 py-1.5'
+          !isSidebar && scaleClasses.container
         )}
       >
         {/* Drag Grip Handle */}
@@ -376,13 +404,17 @@ export default function CullingActionBar({
           <GripVertical size={13} />
         </div>
 
+        {/* Center button group: fills + centers in distributed rows, transparent elsewhere */}
+        <div className={useDistributedRow ? 'flex-1 flex items-center justify-center gap-1.5' : 'contents'}>
+
         {/* REJECT BUTTON (R / 2) */}
         <button
           type="button"
           onClick={() => onStatus('rejected')}
           className={clsx(
             'rounded-xl transition-all cursor-pointer font-medium select-none',
-            scaleClasses.btn,
+            actionBtnClass,
+            floatingFillClass,
             isSidebar && 'order-1',
             status === 'rejected'
               ? 'bg-red-600 text-white ring-2 ring-red-400 shadow-lg shadow-red-600/40'
@@ -391,7 +423,7 @@ export default function CullingActionBar({
           title="Reject (R / 2)"
         >
           <X size={scaleClasses.iconSize} strokeWidth={2.5} />
-          {scaleClasses.showText && <span className="whitespace-nowrap font-medium text-xs">Reject</span>}
+          {showText && <span className="whitespace-nowrap font-medium text-xs">Reject</span>}
         </button>
 
         {/* SKIP BUTTON (Space) */}
@@ -400,7 +432,8 @@ export default function CullingActionBar({
           onClick={() => onStatus('pending')}
           className={clsx(
             'rounded-xl transition-all cursor-pointer font-medium select-none',
-            scaleClasses.btn,
+            actionBtnClass,
+            floatingFillClass,
             isSidebar && 'order-3',
             status === 'pending'
               ? 'bg-neutral-700 text-white ring-2 ring-neutral-400 shadow-md'
@@ -409,7 +442,7 @@ export default function CullingActionBar({
           title="Skip / Leave Pending (Space)"
         >
           <SkipForward size={scaleClasses.iconSize - 2} />
-          {scaleClasses.showText && <span className="whitespace-nowrap font-medium text-xs">Skip</span>}
+          {showText && <span className="whitespace-nowrap font-medium text-xs">Skip</span>}
         </button>
 
         {/* ACCEPT BUTTON (A / ~ / Enter) */}
@@ -418,7 +451,8 @@ export default function CullingActionBar({
           onClick={() => onStatus('accepted')}
           className={clsx(
             'rounded-xl transition-all cursor-pointer font-medium select-none',
-            scaleClasses.btn,
+            actionBtnClass,
+            floatingFillClass,
             isSidebar && 'order-2',
             status === 'accepted'
               ? 'bg-emerald-600 text-white ring-2 ring-emerald-400 shadow-lg shadow-emerald-600/40'
@@ -427,7 +461,7 @@ export default function CullingActionBar({
           title="Accept / Keep (A / ~ / Enter)"
         >
           <Check size={scaleClasses.iconSize} strokeWidth={2.5} />
-          {scaleClasses.showText && <span className="whitespace-nowrap font-medium text-xs">Accept</span>}
+          {showText && <span className="whitespace-nowrap font-medium text-xs">Accept</span>}
         </button>
 
         {/* OPTIONAL TAG BUTTON */}
@@ -437,7 +471,8 @@ export default function CullingActionBar({
             onClick={onToggleTag}
             className={clsx(
               'rounded-xl transition-all cursor-pointer font-medium select-none',
-              scaleClasses.btn,
+              actionBtnClass,
+              floatingFillClass,
               isSidebar && 'order-4',
               isTagged
                 ? 'bg-amber-500 text-neutral-950 ring-2 ring-amber-300 font-bold'
@@ -446,12 +481,15 @@ export default function CullingActionBar({
             title="Toggle Tag / Flag (\)"
           >
             <Bookmark size={scaleClasses.iconSize - 2} className={isTagged ? 'fill-current' : ''} />
-            {scaleClasses.showText && <span className="whitespace-nowrap font-medium text-xs">Tag</span>}
+            {showText && <span className="whitespace-nowrap font-medium text-xs">Tag</span>}
           </button>
         )}
+        </div>
 
+        {/* Right controls pinned to the bar's right edge: options menu + resize handle */}
+        <div className={clsx(useDistributedRow ? 'flex items-center gap-1 shrink-0 ml-auto' : 'contents')}>
         {/* Placement & Scale Menu Button (menu renders via portal, fixed, so it can never be clipped) */}
-        <div className={clsx('relative', isSidebar && 'col-span-2 flex justify-center')}>
+        <div className={clsx('relative shrink-0', isSidebar && 'col-span-2 flex justify-center')}>
           <button
             type="button"
             onClick={(e) => {
@@ -619,6 +657,7 @@ export default function CullingActionBar({
             </svg>
           </div>
         )}
+        </div>
       </div>
     </div>
   )
