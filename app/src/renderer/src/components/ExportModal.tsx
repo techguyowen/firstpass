@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { FolderUp, Copy, Trash2, CheckCircle2, X, Folder, Sparkles } from 'lucide-react'
 import { api } from '../api/client'
 import { usePhotosStore } from '../store/photosStore'
@@ -89,13 +89,30 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
     }
   }
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !exporting) {
+        e.preventDefault()
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [exporting, onClose])
+
   const progressPct = exportProgress && exportProgress.total > 0
     ? Math.min(100, Math.round((exportProgress.progress / exportProgress.total) * 100))
     : 0
 
   return (
-    <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl max-w-md w-full p-6 shadow-2xl relative overflow-hidden animate-in fade-in zoom-in duration-150">
+    <div 
+      className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      onClick={() => !exporting && onClose()}
+    >
+      <div 
+        className="bg-gray-900 border border-gray-800 rounded-2xl max-w-md w-full p-6 shadow-2xl relative overflow-hidden animate-in fade-in zoom-in duration-150"
+        onClick={(e) => e.stopPropagation()}
+      >
         <button
           onClick={onClose}
           className="absolute top-4 right-4 text-gray-400 hover:text-white p-1 rounded-lg hover:bg-gray-800 transition-colors"
