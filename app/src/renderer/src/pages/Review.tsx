@@ -5,7 +5,7 @@ import {
   Zap, PanelBottom, Sun, Activity, Columns, Sliders, PanelLeft, PanelRight,
   Palette, Moon, Info, ChevronDown, Users, SlidersHorizontal, RotateCcw, Sparkles,
   ChevronsRight, ChevronsLeft, Anchor, GripVertical, Minus, Square, MoreHorizontal,
-  ExternalLink, Pin, Crown, Split
+  ExternalLink, Pin, Crown, Split, Film
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '../api/client'
@@ -598,6 +598,42 @@ export default function Review() {
     window.addEventListener('pointerup', handlePointerUp)
   }, [handleExecuteBottomDrop])
 
+  // Dragging the docked Filmstrip grip detaches it into a floating window at the pointer.
+  const handleFilmstripStartDrag = useCallback((e: React.PointerEvent) => {
+    if (e.button !== 0) return
+    const startX = e.clientX
+    const startY = e.clientY
+    let detached = false
+
+    const handlePointerMove = (ev: PointerEvent) => {
+      if (detached) return
+      const dx = ev.clientX - startX
+      const dy = ev.clientY - startY
+      if (Math.hypot(dx, dy) > 8) {
+        detached = true
+        // Pre-seed the floating panel position so it appears under the cursor.
+        const x = Math.max(10, Math.min(window.innerWidth - 340, ev.clientX - 300))
+        const y = Math.max(10, Math.min(window.innerHeight - 170, ev.clientY - 20))
+        try {
+          const serialized = JSON.stringify({ x, y })
+          localStorage.setItem('firstpass_filmstrip_panel_pos', serialized)
+          localStorage.setItem('photo_culler_filmstrip_panel_pos', serialized)
+        } catch {}
+        setFilmstripPosition('floating')
+        window.removeEventListener('pointermove', handlePointerMove)
+        window.removeEventListener('pointerup', handlePointerUp)
+      }
+    }
+
+    const handlePointerUp = () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', handlePointerUp)
+  }, [setFilmstripPosition])
+
   useEffect(() => {
     const handleSplitEvent = (e: any) => {
       const { tabId, groupIndex, side } = e.detail || {}
@@ -1132,7 +1168,7 @@ export default function Review() {
           if (payload) setFilmstripPosition(payload)
           break
         case 'toggle-filmstrip':
-          setFilmstripPosition(filmstripPosition === 'hidden' ? 'bottom' : filmstripPosition === 'bottom' ? 'side' : 'hidden')
+          setFilmstripPosition(filmstripPosition === 'hidden' ? 'bottom' : filmstripPosition === 'bottom' ? 'side' : filmstripPosition === 'side' ? 'floating' : 'hidden')
           break
         case 'reanalyze-active':
           handleReanalyze()
@@ -1445,6 +1481,7 @@ export default function Review() {
               onClick={() => {
                 if (filmstripPosition === 'hidden') setFilmstripPosition('bottom')
                 else if (filmstripPosition === 'bottom') setFilmstripPosition('side')
+                else if (filmstripPosition === 'side') setFilmstripPosition('floating')
                 else setFilmstripPosition('hidden')
               }}
               className={clsx(
@@ -1453,7 +1490,7 @@ export default function Review() {
                   ? 'bg-blue-500/20 border-blue-500/60 text-blue-300 font-semibold'
                   : 'border-neutral-800 bg-neutral-900/90 hover:bg-neutral-800 text-neutral-400 hover:text-white'
               )}
-              title="Cycle Filmstrip: Bottom / Side / Hidden (B)"
+              title={`Filmstrip: ${filmstripPosition} (Click to cycle Bottom / Side / Floating / Hidden) (B)`}
             >
               <PanelBottom size={11} />
               <span className="capitalize hidden lg:inline">{filmstripPosition === 'hidden' ? 'Filmstrip' : filmstripPosition}</span>
@@ -2151,7 +2188,9 @@ export default function Review() {
                 fillHeight={isBottomSideBySide}
                 onSelectPhoto={(pid) => navigate(`/review/${pid}`)}
                 onTogglePosition={() => setFilmstripPosition('side')}
+                onSetPosition={setFilmstripPosition}
                 onClose={() => setFilmstripPosition('hidden')}
+                onStartDrag={handleFilmstripStartDrag}
               />
             </div>
           )}
@@ -2263,6 +2302,67 @@ export default function Review() {
 
       </div>
 
+      {/* Floating Filmstrip */}
+      {filmstripPosition === 'floating' && !fullscreen && (
+        <div className={clsx(
+          "transition-opacity duration-300",
+          lightsOutLevel === 1 && "lights-out-dim",
+          lightsOutLevel === 2 && "lights-out-blackout pointer-events-none"
+        )}>
+          <DraggablePanel
+            title={`Filmstrip (${photos.findIndex(p => p.id === photo.id) + 1}/${photos.length})`}
+            icon={<Film size={13} className="text-blue-400" />}
+            storageKey="firstpass_filmstrip_panel_pos"
+            defaultPosition={{ x: Math.max(20, Math.round(window.innerWidth / 2 - 300)), y: Math.max(60, window.innerHeight - 200) }}
+            width={600}
+            height={150}
+            minWidth={320}
+            minHeight={110}
+            maxWidth={Math.max(600, window.innerWidth - 60)}
+            maxHeight={500}
+            resizable={true}
+            isOpen={true}
+            onClose={() => setFilmstripPosition('hidden')}
+            supportedDockZones={['bottom', 'sidebar']}
+            onSnapDock={(zone) => setFilmstripPosition(zone === 'bottom' ? 'bottom' : 'side')}
+            headerControls={
+              <div className="flex items-center gap-1 mr-1">
+                <button
+                  type="button"
+                  onClick={() => setFilmstripPosition('bottom')}
+                  className="p-1 text-neutral-400 hover:text-white rounded hover:bg-neutral-800 transition-colors cursor-pointer"
+                  title="Dock Filmstrip to Bottom Stage"
+                >
+                  <PanelBottom size={11} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilmstripPosition('side')}
+                  className="p-1 text-neutral-400 hover:text-white rounded hover:bg-neutral-800 transition-colors cursor-pointer"
+                  title="Dock Filmstrip to Right Sidebar"
+                >
+                  <PanelRight size={11} />
+                </button>
+              </div>
+            }
+            className="flex flex-col overflow-hidden"
+          >
+            <div className="flex-1 min-h-0 -m-3 h-full">
+              <Filmstrip
+                photos={photos}
+                currentPhotoId={photo.id}
+                position="floating"
+                fillHeight={true}
+                onSelectPhoto={(pid) => navigate(`/review/${pid}`)}
+                onSetPosition={setFilmstripPosition}
+                onTogglePosition={() => setFilmstripPosition('bottom')}
+                onClose={() => setFilmstripPosition('hidden')}
+              />
+            </div>
+          </DraggablePanel>
+        </div>
+      )}
+
       {/* Side Filmstrip */}
       {filmstripPosition === 'side' && !fullscreen && (
         <div className={clsx(
@@ -2276,7 +2376,9 @@ export default function Review() {
             position="side"
             onSelectPhoto={(pid) => navigate(`/review/${pid}`)}
             onTogglePosition={() => setFilmstripPosition('bottom')}
+            onSetPosition={setFilmstripPosition}
             onClose={() => setFilmstripPosition('hidden')}
+            onStartDrag={handleFilmstripStartDrag}
           />
         </div>
       )}

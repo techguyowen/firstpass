@@ -9,7 +9,7 @@ import { HudMode } from '../components/InfoOverlay'
 
 export type FaceLoupePlacement = 'bottom' | 'sidebar' | 'floating' | 'hidden'
 export type HistogramPlacement = 'sidebar' | 'bottom' | 'floating' | 'hidden'
-export type FilmstripPlacement = 'bottom' | 'side' | 'hidden'
+export type FilmstripPlacement = 'bottom' | 'side' | 'floating' | 'hidden'
 
 export interface WorkspaceLayout {
   id: string

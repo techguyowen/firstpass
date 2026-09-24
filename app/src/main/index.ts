@@ -678,6 +678,12 @@ function setupApplicationMenu(): void {
                   click: () => send('set-filmstrip', 'side')
                 },
                 {
+                  label: 'Floating Filmstrip Window',
+                  type: 'radio' as const,
+                  checked: currentMenuState.filmstripPosition === 'floating',
+                  click: () => send('set-filmstrip', 'floating')
+                },
+                {
                   label: 'Hide Filmstrip',
                   type: 'radio' as const,
                   checked: currentMenuState.filmstripPosition === 'hidden',

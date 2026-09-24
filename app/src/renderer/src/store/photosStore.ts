@@ -89,13 +89,13 @@ interface PhotosStore {
   lastReviewedPhotoId: number | null
   activePhotoId: number | null
   autoAdvance: boolean
-  filmstripPosition: 'bottom' | 'side' | 'hidden'
+  filmstripPosition: 'bottom' | 'side' | 'floating' | 'hidden'
 
   // Actions
   setActivePhotoId: (id: number | null) => void
   setLastReviewedPhotoId: (id: number | null) => void
   toggleAutoAdvance: () => void
-  setFilmstripPosition: (pos: 'bottom' | 'side' | 'hidden') => void
+  setFilmstripPosition: (pos: 'bottom' | 'side' | 'floating' | 'hidden') => void
   togglePhotoTag: (photoId: number) => Promise<void>
   setPhotos: (photos: Photo[]) => void
   setFitMode: (mode: 'contain' | 'cover') => void
@@ -146,7 +146,7 @@ export const usePhotosStore = create<PhotosStore>((set, get) => ({
   lastReviewedPhotoId: (() => { try { const v = localStorage.getItem('firstpass_last_photo') || localStorage.getItem('photo_culler_last_photo'); return v ? parseInt(v) : null } catch { return null } })(),
   activePhotoId: (() => { try { const v = localStorage.getItem('firstpass_active_photo_id') || localStorage.getItem('firstpass_last_photo') || localStorage.getItem('photo_culler_active_photo_id') || localStorage.getItem('photo_culler_last_photo'); return v ? parseInt(v) : null } catch { return null } })(),
   autoAdvance: (() => { try { const v = localStorage.getItem('firstpass_auto_advance') ?? localStorage.getItem('photo_culler_auto_advance'); return v !== 'false' } catch { return true } })(),
-  filmstripPosition: (() => { try { return (localStorage.getItem('firstpass_filmstrip') || localStorage.getItem('photo_culler_filmstrip') as any) || 'bottom' } catch { return 'bottom' } })(),
+  filmstripPosition: (() => { try { const v = (localStorage.getItem('firstpass_filmstrip') || localStorage.getItem('photo_culler_filmstrip')) as any; return (v === 'bottom' || v === 'side' || v === 'floating' || v === 'hidden') ? v : 'bottom' } catch { return 'bottom' } })(),
 
   setActivePhotoId: (id) => {
     set({ activePhotoId: id, lastReviewedPhotoId: id })
