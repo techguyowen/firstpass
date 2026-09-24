@@ -141,6 +141,9 @@ export default function DraggablePanel({
   })
 
   const [zIndex, setZIndex] = useState<number>(() => ++topZIndex)
+  // True while a drag is active: disables all positional transitions so the
+  // panel tracks the cursor 1:1 at 60fps with zero rubber-banding lag.
+  const [isDragging, setIsDragging] = useState(false)
 
   const bringToFront = useCallback(() => {
     setZIndex(++topZIndex)
@@ -155,6 +158,7 @@ export default function DraggablePanel({
     bringToFront()
     setContextMenu(null)
     isDraggingRef.current = true
+    setIsDragging(true)
     dragOffsetRef.current = {
       x: e.clientX - position.x,
       y: e.clientY - position.y,
@@ -240,6 +244,7 @@ export default function DraggablePanel({
 
     const handleMouseUp = (ev: MouseEvent) => {
       isDraggingRef.current = false
+      setIsDragging(false)
       document.body.style.userSelect = ''
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
@@ -452,6 +457,9 @@ export default function DraggablePanel({
           width: `${size.width}px`,
           height: isCollapsed ? 'auto' : (size.height ? `${size.height}px` : undefined),
           zIndex,
+          // No positional transitions during drag: panel follows cursor 1:1.
+          transition: isDragging ? 'none' : undefined,
+          willChange: isDragging ? 'left, top' : undefined,
         }}
         className={clsx(
           'fixed select-none bg-neutral-950/95 backdrop-blur-md border border-neutral-800 rounded-xl shadow-2xl overflow-hidden transition-shadow flex flex-col',

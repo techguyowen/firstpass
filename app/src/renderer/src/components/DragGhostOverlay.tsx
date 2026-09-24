@@ -49,11 +49,12 @@ export default function DragGhostOverlay() {
         </div>
       )}
 
-      {/* 2. Floating Ghost Badge following cursor */}
+      {/* 2. Floating Ghost Badge following cursor (tracks pointer 1:1, zero lag) */}
       <div
-        className="fixed pointer-events-none transition-transform duration-75 will-change-transform"
+        className="fixed left-0 top-0 pointer-events-none will-change-transform"
         style={{
           transform: `translate3d(${currentPos.x + 14}px, ${currentPos.y + 14}px, 0)`,
+          transition: 'none',
         }}
       >
         {item.type === 'sorting-bar' ? (

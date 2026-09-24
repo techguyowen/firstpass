@@ -157,14 +157,15 @@ export default function Filmstrip({
   return (
     <div
       className={clsx(
-        'bg-neutral-950/95 backdrop-blur border-neutral-800 z-30 transition-all duration-200 flex flex-col',
+        'flex flex-col z-30',
         isFloating
-          ? 'w-full h-full min-h-0 border-0 flex-shrink-0 overflow-hidden'
+          ? 'w-full h-full min-h-0 border-0 flex-shrink-0 overflow-hidden bg-neutral-950/95 backdrop-blur'
           : isBottom
             ? fillHeight
-              ? 'w-full h-full min-h-[90px] border rounded-xl flex-shrink-0 overflow-hidden'
-              : 'w-full h-28 border-t flex-shrink-0'
-            : 'h-full w-36 border-l flex-shrink-0'
+              // Flush docked pane: edge-to-edge, no nested rounded island or border.
+              ? 'w-full h-full min-h-0 rounded-none border-0 bg-transparent flex-shrink-0 overflow-hidden'
+              : 'w-full h-28 border-t border-neutral-800 bg-neutral-950/95 backdrop-blur flex-shrink-0 overflow-hidden'
+            : 'h-full w-36 border-l border-neutral-800 bg-neutral-950/95 backdrop-blur flex-shrink-0 overflow-hidden'
       )}
     >
       {/* Header toolbar (h-8 to match the modules pane headers) */}
@@ -358,12 +359,14 @@ export default function Filmstrip({
         })}
       </div>
 
-      {/* Thumbnails list */}
+      {/* Thumbnails list (flush: fills pane height, single-axis scroll) */}
       <div
         ref={containerRef}
         className={clsx(
-          'flex-1 p-2 gap-2 overflow-auto scrollbar-thin scrollbar-thumb-neutral-700',
-          isHorizontal ? 'flex flex-row items-center overflow-x-auto overflow-y-hidden' : 'flex flex-col items-center overflow-y-auto overflow-x-hidden'
+          'flex-1 min-h-0 p-2 gap-2 scrollbar-thin scrollbar-thumb-neutral-700',
+          isHorizontal
+            ? 'flex flex-row items-center overflow-x-auto overflow-y-hidden'
+            : 'flex flex-col items-center overflow-y-auto overflow-x-hidden'
         )}
       >
         {visiblePhotos.map((photo) => {
@@ -377,6 +380,7 @@ export default function Filmstrip({
               className={clsx(
                 'relative group flex-shrink-0 rounded-lg overflow-hidden transition-all duration-150 cursor-pointer bg-neutral-900 border-2',
                 thumbClass,
+                isBottom && fillHeight && 'max-h-24',
                 isActive
                   ? 'border-blue-500 ring-2 ring-blue-500/30 shadow-lg shadow-blue-500/20 scale-105 z-10'
                   : 'border-neutral-800 hover:border-neutral-600 opacity-75 hover:opacity-100'

@@ -618,36 +618,68 @@ export default function Review() {
     window.addEventListener('pointerup', handlePointerUp)
   }, [handleExecuteBottomDrop])
 
-  // Dragging the docked Filmstrip grip detaches it into a floating window at the pointer.
+  // Dragging the docked Filmstrip grip tears off into a floating window.
+  // The drag stays alive until pointer release: a ghost tracks the cursor
+  // 1:1 the whole way, and the floating panel lands at the release point.
   const handleFilmstripStartDrag = useCallback((e: React.PointerEvent) => {
     if (e.button !== 0) return
     const startX = e.clientX
     const startY = e.clientY
-    let detached = false
+    let hasStartedDrag = false
+    try {
+      ;(e.currentTarget as Element).setPointerCapture?.(e.pointerId)
+    } catch {}
+
+    const placeFloatingAt = (clientX: number, clientY: number) => {
+      const x = Math.max(10, Math.min(window.innerWidth - 340, clientX - 300))
+      const y = Math.max(10, Math.min(window.innerHeight - 170, clientY - 20))
+      try {
+        const serialized = JSON.stringify({ x, y })
+        localStorage.setItem('firstpass_filmstrip_panel_pos', serialized)
+        localStorage.setItem('photo_culler_filmstrip_panel_pos', serialized)
+      } catch {}
+    }
 
     const handlePointerMove = (ev: PointerEvent) => {
-      if (detached) return
       const dx = ev.clientX - startX
       const dy = ev.clientY - startY
-      if (Math.hypot(dx, dy) > 8) {
-        detached = true
-        // Pre-seed the floating panel position so it appears under the cursor.
-        const x = Math.max(10, Math.min(window.innerWidth - 340, ev.clientX - 300))
-        const y = Math.max(10, Math.min(window.innerHeight - 170, ev.clientY - 20))
-        try {
-          const serialized = JSON.stringify({ x, y })
-          localStorage.setItem('firstpass_filmstrip_panel_pos', serialized)
-          localStorage.setItem('photo_culler_filmstrip_panel_pos', serialized)
-        } catch {}
-        setFilmstripPosition('floating')
-        window.removeEventListener('pointermove', handlePointerMove)
-        window.removeEventListener('pointerup', handlePointerUp)
+      if (!hasStartedDrag && Math.hypot(dx, dy) > 8) {
+        hasStartedDrag = true
+        dockDragManager.startDrag(
+          {
+            type: 'module-tab',
+            id: 'filmstrip',
+            title: 'Filmstrip',
+            sourceZone: 'bottom',
+          },
+          ev.clientX,
+          ev.clientY
+        )
+      }
+      if (hasStartedDrag) {
+        // Keep the ghost tracking the pointer until release (never abort).
+        dockDragManager.updateDrag(ev.clientX, ev.clientY, ev.metaKey || ev.ctrlKey)
       }
     }
 
-    const handlePointerUp = () => {
+    const handlePointerUp = (ev: PointerEvent) => {
       window.removeEventListener('pointermove', handlePointerMove)
       window.removeEventListener('pointerup', handlePointerUp)
+      if (!hasStartedDrag) return
+      const drop = dockDragManager.endDrag()
+      const target = drop?.dropTarget
+      if (target && (target.type === 'sidebar-dock' || target.type === 'side-dock')) {
+        setFilmstripPosition('side')
+      } else if (
+        target &&
+        (target.type === 'bottom-dock' || target.type === 'bottom-split' || target.type === 'bottom-tab-group')
+      ) {
+        // Dropped back over the bottom dock: stay docked.
+      } else {
+        // Float at the release point so the panel lands under the cursor.
+        placeFloatingAt(ev.clientX, ev.clientY)
+        setFilmstripPosition('floating')
+      }
     }
 
     window.addEventListener('pointermove', handlePointerMove)
@@ -1972,7 +2004,7 @@ export default function Review() {
         {/* Unified Bottom Dock: modules + filmstrip in one cohesive resizable stage bar */}
         {(showBottomModules || showBottomFilmstrip) && (
           <div
-            className="bg-neutral-950/95 border-t border-neutral-800 flex flex-col w-full flex-shrink-0 relative"
+            className="w-full bg-neutral-950 border-t border-neutral-800 flex flex-col flex-shrink-0 relative z-20"
             style={{ height: isBottomCollapsed ? undefined : `${bottomBarHeight}px` }}
           >
           {/* Unified top resize handle spanning the entire dock */}
@@ -1985,8 +2017,8 @@ export default function Review() {
             <div className="w-16 h-1 bg-neutral-700/80 rounded-full group-hover:bg-blue-400 group-active:bg-blue-300 transition-colors" />
           </div>
           <div className={isBottomSideBySide
-            ? "flex flex-row items-stretch w-full gap-2 px-3 pb-2 flex-1 min-h-0"
-            : "flex flex-col w-full px-4 pb-2 flex-1 min-h-0"
+            ? "flex-1 min-h-0 flex flex-row items-stretch w-full overflow-hidden"
+            : "flex-1 min-h-0 flex flex-col w-full overflow-hidden"
           }>
           {showBottomModules && (
           <div
@@ -2012,7 +2044,7 @@ export default function Review() {
             }}
             style={isBottomSideBySide ? { width: `${bottomSplitWidth}px` } : undefined}
             className={clsx(
-              "flex flex-col h-full min-h-0 rounded-xl border border-neutral-800 bg-neutral-900/90 shadow-xl overflow-hidden relative transition-opacity duration-300",
+              "flex flex-col h-full min-h-0 bg-neutral-900/40 relative overflow-hidden",
               isBottomSideBySide ? "shrink-0" : "flex-shrink-0",
               bottomDockSwap === 'modules-left' ? "order-1" : "order-3",
               lightsOutLevel === 1 && "lights-out-dim",
@@ -2021,14 +2053,14 @@ export default function Review() {
           >
             {/* Polished universal drop landing marquee for the bottom dock */}
             {activeDropZone === 'bottom' && (
-              <div className="absolute inset-0 bg-blue-500/20 border-2 border-blue-400 rounded-xl backdrop-blur-xs shadow-[0_0_30px_rgba(59,130,246,0.35)] animate-in fade-in duration-100 flex items-center justify-center text-blue-200 text-xs font-semibold pointer-events-none z-30 transition-all">
+              <div className="absolute inset-0 bg-blue-500/20 border-2 border-blue-400 backdrop-blur-xs shadow-[0_0_30px_rgba(59,130,246,0.35)] animate-in fade-in duration-100 flex items-center justify-center text-blue-200 text-xs font-semibold pointer-events-none z-30">
                 Release to Dock to Bottom Bar
               </div>
             )}
-            {/* Horizontal Columns Container */}
+            {/* Horizontal Columns Container (flush, no nested island padding) */}
             <div
               id="bottom-groups-container"
-              className="flex flex-row items-stretch w-full gap-1.5 overflow-hidden flex-1 min-h-0 p-1.5"
+              className="flex flex-row items-stretch w-full overflow-hidden flex-1 min-h-0"
             >
               {bottomGroups.map((group, groupIndex) => {
                 const activeTab = group.tabs.includes(group.activeTab) ? group.activeTab : group.tabs[0] || ''
@@ -2043,21 +2075,21 @@ export default function Review() {
                     {groupIndex > 0 && (
                       <div
                         onMouseDown={(e) => startHorizontalResize(groupIndex, e)}
-                        className="w-1.5 hover:w-2 bg-neutral-800 hover:bg-blue-500/80 cursor-col-resize transition-all flex items-center justify-center group/splitter z-20 shrink-0 select-none rounded-full"
+                        className="w-1.5 hover:w-2 bg-neutral-800/80 hover:bg-blue-500 cursor-col-resize shrink-0 transition-colors z-20 flex items-center justify-center group/splitter select-none"
                         title="Drag left/right to resize columns"
                       >
                         <div className="w-0.5 h-6 bg-neutral-600 rounded-full group-hover/splitter:bg-white" />
                       </div>
                     )}
 
-                    {/* Column Panel Group */}
+                    {/* Column Panel Group (flush pane, 1px divider) */}
                     <div
                       style={{ flex: group.widthRatio || 1 }}
                       data-bottom-group-id={group.id}
                       data-bottom-group-index={groupIndex}
                       className={clsx(
-                        "min-w-[200px] flex flex-col rounded-xl border border-neutral-800 bg-neutral-900/95 shadow-xl overflow-hidden backdrop-blur-md relative transition-all duration-150",
-                        isTabGroupTarget && "border-blue-500 ring-2 ring-blue-500/60"
+                        "min-w-[200px] flex flex-col min-h-0 bg-transparent overflow-hidden relative border-r border-neutral-800 last:border-r-0",
+                        isTabGroupTarget && "ring-2 ring-inset ring-blue-500/60"
                       )}
                     >
                       {/* Left Split Drop Target Indicator */}
@@ -2106,10 +2138,10 @@ export default function Review() {
                                   handleSelectBottomTab(group.id, tabId)
                                 }}
                                 className={clsx(
-                                  "group flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-grab active:cursor-grabbing select-none shrink-0",
+                                  "group flex items-center gap-1.5 px-2.5 h-8 text-xs font-medium cursor-grab active:cursor-grabbing select-none shrink-0 border-b-2 -mb-px transition-colors",
                                   isActive
-                                    ? "bg-neutral-800 text-white shadow-sm border border-neutral-700"
-                                    : "text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/50"
+                                    ? "bg-neutral-800/80 text-white border-blue-500"
+                                    : "text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/40 border-transparent"
                                 )}
                                 title={`${title} (Click to switch, drag to move/float, double-click to collapse)`}
                               >
@@ -2264,18 +2296,16 @@ export default function Review() {
             <div
               onMouseDown={startBottomHorizontalSplitResize}
               onDoubleClick={handleResetBottomSplitWidth}
-              className="w-2 hover:w-2.5 -mx-0.5 cursor-col-resize z-20 shrink-0 flex items-center justify-center group/vsplit select-none order-2 self-stretch"
+              className="w-1.5 hover:w-2 bg-neutral-800/80 hover:bg-blue-500 cursor-col-resize shrink-0 transition-colors z-20 flex items-center justify-center group/vsplit select-none order-2 self-stretch"
               title="Drag left/right to resize modules vs filmstrip (Double-click to reset to 420px)"
             >
-              <div className="w-1 h-8 bg-neutral-700/80 rounded-full group-hover/vsplit:bg-blue-400 group-active/vsplit:bg-blue-500 transition-colors" />
+              <div className="w-0.5 h-8 bg-neutral-600 rounded-full group-hover/vsplit:bg-white transition-colors" />
             </div>
           )}
-          {/* Bottom Filmstrip pane (takes remaining width when side-by-side) */}
+          {/* Bottom Filmstrip pane (flush, takes remaining width when side-by-side) */}
           {showBottomFilmstrip && !isBottomCollapsed && (
             <div className={clsx(
-              isBottomSideBySide
-                ? "flex-1 min-w-0 h-full min-h-0 flex flex-col overflow-hidden"
-                : "h-full min-h-0 flex flex-col overflow-hidden transition-opacity duration-300",
+              "flex-1 min-w-0 flex flex-col h-full min-h-0 bg-neutral-900/40 relative overflow-hidden",
               bottomDockSwap === 'modules-left' ? "order-3" : "order-1",
               lightsOutLevel === 1 && "lights-out-dim",
               lightsOutLevel === 2 && "lights-out-blackout pointer-events-none"

@@ -104,6 +104,14 @@ export default function CullingActionBar({
   const barRef = useRef<HTMLDivElement>(null)
   const pointerStartRef = useRef<{ x: number; y: number } | null>(null)
   const isDraggingRef = useRef(false)
+  // Direct 1:1 floating drag: the bar tracks the cursor with zero lag while
+  // dragging (transition: none), then magnetic-snaps + persists on release.
+  const [isFloatDragging, setIsFloatDragging] = useState(false)
+  const floatDragOffsetRef = useRef({ x: 100, y: 25 })
+  const placementRef = useRef(placement)
+  placementRef.current = placement
+  const floatPosRef = useRef(floatPos)
+  floatPosRef.current = floatPos
 
   // Sync controlled props
   useEffect(() => {
@@ -151,7 +159,9 @@ export default function CullingActionBar({
     setMenuAnchor(null)
   }
 
-  // Pointer-based smooth dragging & docking to lines
+  // Pointer-based smooth dragging & docking to lines.
+  // In floating mode the bar itself tracks the cursor 1:1 (transition: none)
+  // via direct position updates; the ghost overlay only shows drop targets.
   const handlePointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return
     const target = e.target as HTMLElement
@@ -159,6 +169,15 @@ export default function CullingActionBar({
 
     pointerStartRef.current = { x: e.clientX, y: e.clientY }
     isDraggingRef.current = false
+    if (placementRef.current === 'floating') {
+      floatDragOffsetRef.current = {
+        x: e.clientX - floatPosRef.current.x,
+        y: e.clientY - floatPosRef.current.y,
+      }
+    }
+    try {
+      ;(e.currentTarget as Element).setPointerCapture?.(e.pointerId)
+    } catch {}
 
     const handlePointerMove = (ev: PointerEvent) => {
       if (!pointerStartRef.current) return
@@ -167,12 +186,13 @@ export default function CullingActionBar({
 
       if (!isDraggingRef.current && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) {
         isDraggingRef.current = true
+        if (placementRef.current === 'floating') setIsFloatDragging(true)
         dockDragManager.startDrag(
           {
             type: 'sorting-bar',
             id: 'sorting-bar',
             title: 'Culling Action Bar',
-            sourceZone: placement === 'bottom' ? 'bottom' : placement === 'floating' ? 'floating' : 'sidebar',
+            sourceZone: placementRef.current === 'bottom' ? 'bottom' : placementRef.current === 'floating' ? 'floating' : 'sidebar',
           },
           ev.clientX,
           ev.clientY
@@ -180,6 +200,23 @@ export default function CullingActionBar({
       }
 
       if (isDraggingRef.current) {
+        // Direct 1:1 tracking for a floating bar: move the bar under the
+        // cursor with sub-pixel smoothness (no transition, no snap yet).
+        if (placementRef.current === 'floating') {
+          const barW = barRef.current?.offsetWidth || 420
+          const barH = barRef.current?.offsetHeight || 60
+          const rawX = ev.clientX - floatDragOffsetRef.current.x
+          const rawY = ev.clientY - floatDragOffsetRef.current.y
+          const clampedX = Math.max(
+            10,
+            Math.min(Math.max(10, window.innerWidth - barW - 10), rawX)
+          )
+          const clampedY = Math.max(
+            10,
+            Math.min(Math.max(10, window.innerHeight - barH - 10), rawY)
+          )
+          setFloatPos({ x: clampedX, y: clampedY })
+        }
         // Evaluate drop target proximity to lines based on center viewport bounds
         let targetType: 'bottom-dock' | 'side-dock' | 'canvas' = 'canvas'
         let side: 'left' | 'right' = 'left'
@@ -219,9 +256,11 @@ export default function CullingActionBar({
     const handlePointerUp = (ev: PointerEvent) => {
       window.removeEventListener('pointermove', handlePointerMove)
       window.removeEventListener('pointerup', handlePointerUp)
+      setIsFloatDragging(false)
 
       if (isDraggingRef.current) {
         isDraggingRef.current = false
+        const wasFloating = placementRef.current === 'floating'
         const drop = dockDragManager.endDrag()
         if (drop && drop.dropTarget) {
           if (drop.dropTarget.type === 'sidebar-dock') {
@@ -231,12 +270,14 @@ export default function CullingActionBar({
           } else if (drop.dropTarget.type === 'side-dock') {
             handleUpdatePlacement(drop.dropTarget.side === 'left' ? 'side-left' : 'side-right')
           } else {
-            // Free float at mouse release (with magnetic edge snapping)
+            // Free float at mouse release (with magnetic edge snapping).
+            // When already floating the bar tracked the cursor live, so snap
+            // from its live position; otherwise anchor at the release point.
             handleUpdatePlacement('floating')
             const barW = barRef.current?.offsetWidth || 420
             const barH = barRef.current?.offsetHeight || 60
-            const rawX = ev.clientX - 100
-            const rawY = ev.clientY - 25
+            const rawX = wasFloating ? floatPosRef.current.x : ev.clientX - 100
+            const rawY = wasFloating ? floatPosRef.current.y : ev.clientY - 25
             // Magnetic boundary snap when floating within 16px of screen edges
             // (left=10px, right=window.innerWidth - width - 10px,
             //  top=10px, bottom=window.innerHeight - height - 10px).
@@ -389,7 +430,8 @@ export default function CullingActionBar({
         setMenuAnchor({ x: e.clientX, y: e.clientY })
       }}
       className={clsx(
-        'select-none transition-all duration-200 z-40',
+        'select-none z-40',
+        !isFloatDragging && 'transition-all duration-200',
         isDimmed && 'opacity-30 hover:opacity-100',
         placement === 'sidebar' && 'w-full py-1.5 px-1 flex-shrink-0',
         placement === 'bottom' && 'flex items-center justify-center py-2 flex-shrink-0',
@@ -404,6 +446,9 @@ export default function CullingActionBar({
               left: `${floatPos.x}px`,
               top: `${floatPos.y}px`,
               width: floatWidth ? `${floatWidth}px` : undefined,
+              // Track the cursor 1:1 while dragging: no transition lag.
+              transition: isFloatDragging ? 'none' : undefined,
+              willChange: isFloatDragging ? 'left, top' : undefined,
             }
           : undefined
       }
