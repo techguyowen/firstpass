@@ -1016,6 +1016,10 @@ app.whenReady().then(() => {
 
   ipcMain.handle('get-api-secret', () => apiSecret)
 
+  ipcMain.on('get-api-secret-sync', (event) => {
+    event.returnValue = apiSecret
+  })
+
   ipcMain.handle('show-item-in-folder', async (_, fullPath: string) => {
     shell.showItemInFolder(fullPath)
     return true

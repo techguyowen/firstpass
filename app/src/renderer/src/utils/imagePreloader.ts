@@ -83,6 +83,10 @@ export function preloadAdjacentPhotos(
 ): void {
   if (!photos || photos.length === 0 || currentIndex < 0) return
 
+  if (photos[currentIndex]) {
+    preloadAndDecodeImage(getFullUrl(photos[currentIndex].id))
+  }
+
   const offsets: number[] = []
   const maxRange = Math.max(aheadCount, behindCount)
 

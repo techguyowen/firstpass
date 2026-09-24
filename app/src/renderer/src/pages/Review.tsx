@@ -8,7 +8,7 @@ import {
   ExternalLink, Pin, Crown, Split, Film, ArrowLeftRight, LayoutGrid
 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { api } from '../api/client'
+import { api, getApiToken, initApiToken } from '../api/client'
 import type { Photo, DuplicateGroup } from '../types/photo'
 import ScorePanel, {
   DockMode,
@@ -48,7 +48,7 @@ import {
   WorkspaceLayout
 } from '../utils/workspaceManager'
 import { usePhotosStore } from '../store/photosStore'
-import { preloadAdjacentPhotos, isImageDecoded } from '../utils/imagePreloader'
+import { preloadAdjacentPhotos, preloadAndDecodeImage, isImageDecoded } from '../utils/imagePreloader'
 import clsx from 'clsx'
 
 export interface BottomGroup {
@@ -99,6 +99,18 @@ export default function Review() {
   const [fullscreen, setFullscreen] = useState(false)
   const [duplicateGroup, setDuplicateGroup] = useState<Photo[]>([])
   const [fullLoaded, setFullLoaded] = useState(() => isImageDecoded(api.getFullImageUrl(photoId)))
+  const [authToken, setAuthToken] = useState<string>(() => getApiToken())
+
+  useEffect(() => {
+    const handleTokenReady = (e: Event) => {
+      const token = (e as CustomEvent).detail
+      if (token && token !== authToken) {
+        setAuthToken(token)
+      }
+    }
+    window.addEventListener('firstpass:token-ready', handleTokenReady)
+    return () => window.removeEventListener('firstpass:token-ready', handleTokenReady)
+  }, [authToken])
   const [zoomLevel, setZoomLevel] = useState<number>(1)
   const [zoomOrigin, setZoomOrigin] = useState<{ x: number; y: number }>({ x: 50, y: 50 })
   const [zoomedFace, setZoomedFace] = useState<{ index: number; isVip: boolean } | null>(null)
@@ -1110,6 +1122,7 @@ export default function Review() {
 
     const fullUrl = api.getFullImageUrl(photoId)
     setFullLoaded(isImageDecoded(fullUrl))
+    preloadAndDecodeImage(fullUrl).then(ok => { if (ok) setFullLoaded(true) })
 
     setZoomLevel(1)
     setZoomOrigin({ x: 50, y: 50 })
@@ -1983,15 +1996,17 @@ export default function Review() {
               <img
                 src={api.getThumbnailUrl(photo.id)}
                 alt=""
-                className="absolute max-h-full max-w-full object-contain rounded-lg filter blur-sm scale-[1.01] opacity-75 transition-opacity pointer-events-none"
+                className="absolute max-h-full max-w-full object-contain rounded-lg opacity-90 transition-opacity pointer-events-none"
               />
             )}
             <img
-              key={photo.id}
+              key={`${photo.id}-${authToken}`}
               src={api.getFullImageUrl(photo.id)}
               alt={photo.filename}
               decoding="async"
+              ref={(el) => { if (el && el.complete && el.naturalWidth > 0 && !fullLoaded) setFullLoaded(true) }}
               onLoad={() => setFullLoaded(true)}
+              onError={() => { initApiToken().then(tok => { if (tok) setAuthToken(tok) }) }}
               onClick={handleToggleZoom}
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}

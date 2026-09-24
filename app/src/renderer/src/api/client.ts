@@ -14,12 +14,32 @@ const axiosInstance = axios.create({
   timeout: 15000,
 })
 
-let cachedToken: string | null = null
+let cachedToken: string | null = (() => {
+  try {
+    if (typeof window !== 'undefined' && window.electronAPI?.getApiSecretSync) {
+      const tok = window.electronAPI.getApiSecretSync()
+      if (tok) return tok
+    }
+    return localStorage.getItem('firstpass_api_token') || localStorage.getItem('photo_culler_api_token') || null
+  } catch {
+    return null
+  }
+})()
 
 export async function initApiToken(): Promise<string> {
   if (!cachedToken && typeof window !== 'undefined' && window.electronAPI?.getApiSecret) {
     try {
-      cachedToken = await window.electronAPI.getApiSecret()
+      const tok = await window.electronAPI.getApiSecret()
+      if (tok) {
+        cachedToken = tok
+        try {
+          localStorage.setItem('firstpass_api_token', tok)
+          localStorage.setItem('photo_culler_api_token', tok)
+        } catch {
+          // ignore storage failures
+        }
+        window.dispatchEvent(new CustomEvent('firstpass:token-ready', { detail: cachedToken }))
+      }
     } catch (err) {
       console.warn('Failed to get API secret from Electron:', err)
     }

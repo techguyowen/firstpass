@@ -29,6 +29,13 @@ const electronAPI = {
     ipcRenderer.send('update-menu-state', state)
   },
   getApiSecret: () => ipcRenderer.invoke('get-api-secret'),
+  getApiSecretSync: () => {
+    try {
+      return ipcRenderer.sendSync('get-api-secret-sync')
+    } catch {
+      return ''
+    }
+  },
   showItemInFolder: (path: string) => ipcRenderer.invoke('show-item-in-folder', path),
   getLogPath: () => ipcRenderer.invoke('get-log-path'),
   platform: process.platform

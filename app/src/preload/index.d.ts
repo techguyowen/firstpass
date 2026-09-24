@@ -7,6 +7,7 @@ export interface ElectronAPI {
   onMenuAction?: (callback: (action: string, payload?: any) => void) => () => void;
   updateMenuState?: (state: Record<string, any>) => void;
   getApiSecret?: () => Promise<string>;
+  getApiSecretSync?: () => string;
   showItemInFolder: (path: string) => Promise<boolean>;
   getLogPath: () => Promise<string>;
   platform: string;
