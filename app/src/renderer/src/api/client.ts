@@ -110,9 +110,13 @@ export const api = {
     return data
   },
 
-  getFaceCropUrl(photoId: number, faceIndex: number): string {
+  getFaceCropUrl(photoId: number, faceIndex: number, hash?: string): string {
     const base = `${BASE_URL}/api/photos/${photoId}/face/${faceIndex}`
-    return cachedToken ? `${base}?token=${encodeURIComponent(cachedToken)}` : base
+    const params = new URLSearchParams()
+    if (cachedToken) params.set('token', cachedToken)
+    if (hash) params.set('h', hash)
+    const qs = params.toString()
+    return qs ? `${base}?${qs}` : base
   },
 
   async getDuplicateGroups(): Promise<DuplicateGroup[]> {

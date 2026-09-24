@@ -301,7 +301,7 @@ export const FaceLoupe: React.FC<FaceLoupeProps> = ({
           >
             {/* 100% Face Crop Image */}
             <img
-              src={`${api.getFaceCropUrl(photoId, face.index)}?h=${Array.isArray(face.box) ? face.box.join('-') : face.index}`}
+              src={api.getFaceCropUrl(photoId, face.index, Array.isArray(face.box) ? face.box.join('-') : String(face.index))}
               alt={`Subject ${face.index + 1}`}
               className="w-full h-full object-cover bg-neutral-950"
               loading="eager"
