@@ -82,7 +82,13 @@ export default function CullingActionBar({
       const saved = localStorage.getItem('photo_culler_triage_float_width')
       if (saved) {
         const val = parseFloat(saved)
-        if (!isNaN(val) && val >= 240 && val <= 1000) return val
+        if (isNaN(val) || val < 400) {
+          try {
+            localStorage.removeItem('photo_culler_triage_float_width')
+          } catch {}
+          return undefined
+        }
+        if (val <= 1000) return Math.max(420, val)
       }
     } catch {}
     return undefined
@@ -217,7 +223,7 @@ export default function CullingActionBar({
           } else {
             // Free float at mouse release
             handleUpdatePlacement('floating')
-            const clampedX = Math.max(20, Math.min(window.innerWidth - 260, ev.clientX - 100))
+            const clampedX = Math.max(20, Math.min(window.innerWidth - 440, ev.clientX - 100))
             const clampedY = Math.max(60, Math.min(window.innerHeight - 90, ev.clientY - 25))
             const newPos = { x: clampedX, y: clampedY }
             setFloatPos(newPos)
@@ -239,14 +245,14 @@ export default function CullingActionBar({
     e.preventDefault()
     e.stopPropagation()
     const startX = e.clientX
-    const startWidth = barRef.current?.offsetWidth || 360
+    const startWidth = barRef.current?.offsetWidth || 420
 
     document.body.style.userSelect = 'none'
     document.body.style.cursor = 'col-resize'
 
     const handlePointerMove = (ev: PointerEvent) => {
       const deltaX = ev.clientX - startX
-      const newWidth = Math.min(1000, Math.max(260, startWidth + deltaX))
+      const newWidth = Math.min(1000, Math.max(420, startWidth + deltaX))
       setFloatWidth(newWidth)
     }
 
@@ -274,32 +280,50 @@ export default function CullingActionBar({
   const isSidebar = placement === 'sidebar'
   const isVertical = placement === 'side-left' || placement === 'side-right'
 
-  // Scale configurations
-  const scaleClasses = isSidebar ? {
-    container: 'p-1 gap-1',
-    btn: 'px-1.5 py-1 text-[11px] flex items-center justify-center gap-1',
-    iconSize: 12,
-    showText: true,
-  } : {
-    compact: {
-      container: isVertical ? 'p-1.5 gap-1.5' : 'px-3 py-1.5 gap-2',
-      btn: isVertical ? 'p-2 w-10 h-10 flex items-center justify-center' : 'px-3.5 py-1.5 text-xs flex items-center justify-center gap-1.5',
-      iconSize: 15,
-      showText: false,
-    },
-    standard: {
-      container: isVertical ? 'p-2 gap-2' : 'px-4 py-2 gap-3',
-      btn: isVertical ? 'py-2 px-1 w-16 h-13 flex flex-col items-center justify-center text-[10px] leading-tight gap-0.5' : 'px-5 py-2 text-sm flex items-center justify-center gap-2',
-      iconSize: 16,
-      showText: true,
-    },
-    large: {
-      container: isVertical ? 'p-2.5 gap-2.5' : 'px-5 py-2.5 gap-3.5',
-      btn: isVertical ? 'py-2.5 px-1.5 w-18 h-15 flex flex-col items-center justify-center text-xs font-semibold gap-1' : 'px-7 py-3 text-base font-semibold flex items-center justify-center gap-2.5',
-      iconSize: 20,
-      showText: true,
-    },
-  }[scale]
+  // Scale configurations.
+  // Compact mode is icon-only (no text) with fixed square buttons so labels
+  // can never clip into single-letter ellipses. Standard/large buttons keep
+  // full words with whitespace-nowrap and a comfortable minimum width.
+  const isCompact = scale === 'compact'
+  const scaleClasses = isCompact
+    ? {
+        container: isSidebar ? 'p-2 gap-1.5' : isVertical ? 'p-1.5 gap-1.5' : 'px-3 py-1.5 gap-2',
+        btn: 'w-9 h-9 p-2 rounded-xl flex items-center justify-center',
+        iconSize: 15,
+        showText: false,
+      }
+    : isSidebar
+    ? {
+        container: 'p-2 gap-1.5',
+        btn: 'min-w-[76px] w-full px-3.5 py-1.5 text-xs whitespace-nowrap font-medium flex items-center justify-center gap-1.5',
+        iconSize: 14,
+        showText: true,
+      }
+    : {
+        standard: {
+          container: isVertical ? 'p-2 gap-2' : 'px-4 py-2 gap-3',
+          btn: isVertical
+            ? 'py-2 px-1 w-16 min-w-[76px] flex flex-col items-center justify-center text-[10px] leading-tight gap-0.5 whitespace-nowrap'
+            : 'min-w-[76px] px-3.5 py-1.5 text-sm whitespace-nowrap font-medium flex items-center justify-center gap-2',
+          iconSize: 16,
+          showText: true,
+        },
+        large: {
+          container: isVertical ? 'p-2.5 gap-2.5' : 'px-5 py-2.5 gap-3.5',
+          btn: isVertical
+            ? 'py-2.5 px-1.5 w-18 min-w-[76px] flex flex-col items-center justify-center text-xs font-semibold gap-1 whitespace-nowrap'
+            : 'min-w-[76px] px-3.5 py-1.5 text-base font-semibold whitespace-nowrap flex items-center justify-center gap-2.5',
+          iconSize: 20,
+          showText: true,
+        },
+      }[scale as 'standard' | 'large'] ?? {
+        container: isVertical ? 'p-2 gap-2' : 'px-4 py-2 gap-3',
+        btn: isVertical
+          ? 'py-2 px-1 w-16 min-w-[76px] flex flex-col items-center justify-center text-[10px] leading-tight gap-0.5 whitespace-nowrap'
+          : 'min-w-[76px] px-3.5 py-1.5 text-sm whitespace-nowrap font-medium flex items-center justify-center gap-2',
+        iconSize: 16,
+        showText: true,
+      }
 
   return (
     <div
@@ -329,17 +353,24 @@ export default function CullingActionBar({
     >
       <div
         className={clsx(
-          'flex items-center bg-neutral-900/90 backdrop-blur-md border border-neutral-800/90 rounded-2xl shadow-2xl transition-all',
-          (placement === 'sidebar' || (placement === 'floating' && Boolean(floatWidth))) && 'w-full justify-between',
-          isVertical ? 'flex-col' : 'flex-row',
-          scaleClasses.container
+          'bg-neutral-900/95 backdrop-blur-md border border-neutral-700/80 rounded-2xl shadow-2xl transition-all',
+          isSidebar
+            ? 'grid grid-cols-2 gap-1.5 w-full p-2'
+            : 'flex items-center w-auto min-w-max',
+          !isSidebar && (isVertical ? 'flex-col' : 'flex-row'),
+          !isSidebar && scaleClasses.container,
+          placement === 'floating' && Boolean(floatWidth) && 'w-full',
+          !isSidebar && 'flex items-center gap-2 px-3 py-1.5'
         )}
       >
         {/* Drag Grip Handle */}
         <div
           data-drag-handle
           onPointerDown={handlePointerDown}
-          className="p-1 text-neutral-500 hover:text-neutral-200 hover:bg-neutral-800/80 rounded-lg cursor-grab active:cursor-grabbing transition-colors shrink-0"
+          className={clsx(
+            'p-1 text-neutral-500 hover:text-neutral-200 hover:bg-neutral-800/80 rounded-lg cursor-grab active:cursor-grabbing transition-colors shrink-0',
+            isSidebar && 'col-span-2 flex justify-center w-full'
+          )}
           title="Drag to right sidebar, bottom line, side edges, or float anywhere"
         >
           <GripVertical size={13} />
@@ -352,7 +383,7 @@ export default function CullingActionBar({
           className={clsx(
             'rounded-xl transition-all cursor-pointer font-medium select-none',
             scaleClasses.btn,
-            (placement === 'sidebar' || (placement === 'floating' && Boolean(floatWidth))) && 'flex-1 min-w-0',
+            isSidebar && 'order-1',
             status === 'rejected'
               ? 'bg-red-600 text-white ring-2 ring-red-400 shadow-lg shadow-red-600/40'
               : 'bg-neutral-800/90 hover:bg-red-950/80 text-neutral-300 hover:text-red-200 border border-neutral-700/60 hover:border-red-600/50'
@@ -360,7 +391,7 @@ export default function CullingActionBar({
           title="Reject (R / 2)"
         >
           <X size={scaleClasses.iconSize} strokeWidth={2.5} />
-          {scaleClasses.showText && <span className="truncate">Reject</span>}
+          {scaleClasses.showText && <span className="whitespace-nowrap font-medium text-xs">Reject</span>}
         </button>
 
         {/* SKIP BUTTON (Space) */}
@@ -370,7 +401,7 @@ export default function CullingActionBar({
           className={clsx(
             'rounded-xl transition-all cursor-pointer font-medium select-none',
             scaleClasses.btn,
-            (placement === 'sidebar' || (placement === 'floating' && Boolean(floatWidth))) && 'flex-1 min-w-0',
+            isSidebar && 'order-3',
             status === 'pending'
               ? 'bg-neutral-700 text-white ring-2 ring-neutral-400 shadow-md'
               : 'bg-neutral-800/90 hover:bg-neutral-700 text-neutral-400 hover:text-white border border-neutral-700/60'
@@ -378,7 +409,7 @@ export default function CullingActionBar({
           title="Skip / Leave Pending (Space)"
         >
           <SkipForward size={scaleClasses.iconSize - 2} />
-          {scaleClasses.showText && <span className="truncate">Skip</span>}
+          {scaleClasses.showText && <span className="whitespace-nowrap font-medium text-xs">Skip</span>}
         </button>
 
         {/* ACCEPT BUTTON (A / ~ / Enter) */}
@@ -388,7 +419,7 @@ export default function CullingActionBar({
           className={clsx(
             'rounded-xl transition-all cursor-pointer font-medium select-none',
             scaleClasses.btn,
-            (placement === 'sidebar' || (placement === 'floating' && Boolean(floatWidth))) && 'flex-1 min-w-0',
+            isSidebar && 'order-2',
             status === 'accepted'
               ? 'bg-emerald-600 text-white ring-2 ring-emerald-400 shadow-lg shadow-emerald-600/40'
               : 'bg-neutral-800/90 hover:bg-emerald-950/80 text-neutral-300 hover:text-emerald-200 border border-neutral-700/60 hover:border-emerald-600/50'
@@ -396,7 +427,7 @@ export default function CullingActionBar({
           title="Accept / Keep (A / ~ / Enter)"
         >
           <Check size={scaleClasses.iconSize} strokeWidth={2.5} />
-          {scaleClasses.showText && <span className="truncate">Accept</span>}
+          {scaleClasses.showText && <span className="whitespace-nowrap font-medium text-xs">Accept</span>}
         </button>
 
         {/* OPTIONAL TAG BUTTON */}
@@ -407,7 +438,7 @@ export default function CullingActionBar({
             className={clsx(
               'rounded-xl transition-all cursor-pointer font-medium select-none',
               scaleClasses.btn,
-              (placement === 'sidebar' || (placement === 'floating' && Boolean(floatWidth))) && 'flex-1 min-w-0',
+              isSidebar && 'order-4',
               isTagged
                 ? 'bg-amber-500 text-neutral-950 ring-2 ring-amber-300 font-bold'
                 : 'bg-neutral-800/60 hover:bg-neutral-700 text-neutral-400 hover:text-amber-300 border border-neutral-700/60'
@@ -415,12 +446,12 @@ export default function CullingActionBar({
             title="Toggle Tag / Flag (\)"
           >
             <Bookmark size={scaleClasses.iconSize - 2} className={isTagged ? 'fill-current' : ''} />
-            {scaleClasses.showText && <span className="truncate">Tag</span>}
+            {scaleClasses.showText && <span className="whitespace-nowrap font-medium text-xs">Tag</span>}
           </button>
         )}
 
         {/* Placement & Scale Menu Button (menu renders via portal, fixed, so it can never be clipped) */}
-        <div className="relative">
+        <div className={clsx('relative', isSidebar && 'col-span-2 flex justify-center')}>
           <button
             type="button"
             onClick={(e) => {
