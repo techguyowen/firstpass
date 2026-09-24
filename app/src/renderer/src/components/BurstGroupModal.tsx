@@ -4,6 +4,7 @@ import { X, Check, XCircle, RotateCcw, Wind, Eye } from 'lucide-react'
 import clsx from 'clsx'
 import toast from 'react-hot-toast'
 import type { Photo } from '../types/photo'
+import { api } from '../api/client'
 
 interface BurstGroupModalProps {
   burstGroupId: string
@@ -11,8 +12,6 @@ interface BurstGroupModalProps {
   onClose: () => void
   onStatusChange: (photoId: number, status: 'accepted' | 'rejected' | 'pending') => void
 }
-
-const API_BASE = 'http://localhost:58765'
 
 function scoreBadgeClass(score: number | null): string {
   if (score === null) return 'bg-neutral-700 text-neutral-300'
@@ -168,7 +167,7 @@ export default function BurstGroupModal({
             {/* Thumbnail */}
             <div className="relative w-full aspect-[3/2] bg-neutral-800">
               <img
-                src={`${API_BASE}/api/photos/${photo.id}/thumbnail`}
+                src={api.getThumbnailUrl(photo.id)}
                 alt={photo.filename}
                 className="w-full h-full object-cover"
                 onClick={(e) => {

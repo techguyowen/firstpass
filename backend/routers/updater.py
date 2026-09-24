@@ -21,6 +21,42 @@ from backend.models.photo import Settings as SettingsModel
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+CURRENT_VERSION = "1.0.1"
+
+ALLOWED_DOWNLOAD_HOSTS = ("github.com", "objects.githubusercontent.com")
+ALLOWED_INSTALL_EXTENSIONS = (".dmg", ".exe", ".AppImage", ".deb")
+ALLOWED_DOWNLOAD_EXTENSIONS = (".dmg", ".exe", ".AppImage", ".deb", ".zip")
+
+
+def _validate_download_params(download_url: str, asset_name: str) -> Path:
+    from urllib.parse import urlparse
+    try:
+        parsed = urlparse(download_url)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid request parameters")
+    if parsed.scheme != "https" or parsed.netloc not in ALLOWED_DOWNLOAD_HOSTS:
+        raise HTTPException(status_code=400, detail="Invalid request parameters")
+    clean_name = os.path.basename(asset_name)
+    if not clean_name or ".." in clean_name or "/" in clean_name or "\\" in clean_name:
+        raise HTTPException(status_code=400, detail="Invalid request parameters")
+    if not clean_name.endswith(ALLOWED_DOWNLOAD_EXTENSIONS):
+        raise HTTPException(status_code=400, detail="Invalid request parameters")
+    target_file = (UPDATES_DIR / clean_name).resolve()
+    if not str(target_file).startswith(str(UPDATES_DIR.resolve())):
+        raise HTTPException(status_code=400, detail="Invalid request parameters")
+    return target_file
+
+
+def _validate_install_path(file_path: str) -> Path:
+    resolved_path = Path(file_path).resolve()
+    if not str(resolved_path).startswith(str(UPDATES_DIR.resolve())):
+        raise HTTPException(status_code=400, detail="Invalid or unsafe installer file")
+    if not resolved_path.exists() or not resolved_path.is_file():
+        raise HTTPException(status_code=400, detail="Invalid or unsafe installer file")
+    if not resolved_path.name.endswith(ALLOWED_INSTALL_EXTENSIONS):
+        raise HTTPException(status_code=400, detail="Invalid or unsafe installer file")
+    return resolved_path
+
 _firstpass_dir = Path.home() / ".firstpass"
 _legacy_dir = Path.home() / ".photo-culler"
 _default_dir = _firstpass_dir if _firstpass_dir.exists() else (_legacy_dir if _legacy_dir.exists() else _firstpass_dir)
@@ -185,9 +221,10 @@ def start_download_update(body: dict):
     asset_name = body.get("asset_name") or "FirstPass-Update"
     if not download_url:
         raise HTTPException(status_code=400, detail="Missing download_url")
-        
+
+    target_file = _validate_download_params(download_url, asset_name)
+
     UPDATES_DIR.mkdir(parents=True, exist_ok=True)
-    target_file = UPDATES_DIR / asset_name
     
     with _download_lock:
         if _download_state["status"] == "downloading":
@@ -214,9 +251,12 @@ def install_update():
     with _download_lock:
         file_path = _download_state.get("file_path")
         status = _download_state.get("status")
-        
+
     if not file_path or not os.path.exists(file_path):
         raise HTTPException(status_code=400, detail="No downloaded update found on disk")
+
+    resolved = _validate_install_path(file_path)
+    file_path = str(resolved)
         
     system = platform.system().lower()
     try:

@@ -70,6 +70,10 @@ jobs:
         run: |
           python backend/download_models.py
 
+      - name: Run Backend Security & Regression Tests
+        run: |
+          python test_security_hardening.py
+
       - name: Build Standalone Python Backend
         run: |
           SPEC_FILE="build/firstpass.spec"

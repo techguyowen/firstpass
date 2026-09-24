@@ -6,6 +6,7 @@ export interface ElectronAPI {
   onNavigateTo?: (callback: (route: string) => void) => () => void;
   onMenuAction?: (callback: (action: string, payload?: any) => void) => () => void;
   updateMenuState?: (state: Record<string, any>) => void;
+  getApiSecret?: () => Promise<string>;
   platform: string;
 }
 

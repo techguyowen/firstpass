@@ -1,7 +1,8 @@
 import { app, shell, BrowserWindow, ipcMain, dialog, Menu, nativeImage } from 'electron'
 import { join } from 'path'
-import { existsSync } from 'fs'
-import http from 'http'
+import { existsSync, writeFileSync, chmodSync, mkdirSync } from 'fs'
+import { homedir } from 'os'
+import crypto from 'crypto'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { spawn, ChildProcess } from 'child_process'
 
@@ -9,6 +10,39 @@ app.setName('FirstPass')
 
 let backendProcess: ChildProcess | null = null
 let mainWindow: BrowserWindow | null = null
+
+const apiSecret: string = crypto.randomBytes(32).toString('hex')
+
+function persistApiSecret(): void {
+  try {
+    const dirs = [join(homedir(), '.firstpass')]
+    try {
+      if (existsSync(join(homedir(), '.photo-culler'))) {
+        dirs.push(join(homedir(), '.photo-culler'))
+      }
+    } catch {
+      // ignore
+    }
+    for (const dir of dirs) {
+      try {
+        mkdirSync(dir, { recursive: true })
+        const tokenPath = join(dir, '.session_token')
+        writeFileSync(tokenPath, apiSecret, { mode: 0o600 })
+        try {
+          chmodSync(tokenPath, 0o600)
+        } catch {
+          // ignore chmod failures on non-POSIX platforms
+        }
+      } catch (err) {
+        console.error(`Failed to write session token to ${dir}:`, err)
+      }
+    }
+  } catch (err) {
+    console.error('Failed to persist API secret:', err)
+  }
+}
+
+persistApiSecret()
 
 function getAppIcon(): Electron.NativeImage | undefined {
   const candidates = [
@@ -49,7 +83,7 @@ function startBackend(): void {
       const scriptPath = join(app.getAppPath(), '../backend/main.py')
       console.log(`Starting backend in dev mode: ${pythonCmd} ${scriptPath}`)
       backendProcess = spawn(pythonCmd, [scriptPath], {
-        env: { ...process.env, PYTHONUNBUFFERED: '1' },
+        env: { ...process.env, PYTHONUNBUFFERED: '1', FIRSTPASS_API_KEY: apiSecret },
         stdio: 'inherit'
       })
     } else {
@@ -62,7 +96,7 @@ function startBackend(): void {
       console.log(`Starting backend in production mode: ${binaryPath}`)
       if (existsSync(binaryPath)) {
         backendProcess = spawn(binaryPath, [], {
-          env: { ...process.env, PYTHONUNBUFFERED: '1' },
+          env: { ...process.env, PYTHONUNBUFFERED: '1', FIRSTPASS_API_KEY: apiSecret },
           stdio: 'inherit'
         })
       } else {
@@ -123,8 +157,28 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    try {
+      const parsed = new URL(details.url)
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        shell.openExternal(details.url)
+      } else {
+        console.warn(`Blocked window open with disallowed protocol: ${parsed.protocol} (${details.url})`)
+      }
+    } catch (err) {
+      console.warn(`Blocked window open with unparseable URL: ${details.url}`, err)
+    }
     return { action: 'deny' }
+  })
+
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    try {
+      const parsed = new URL(url)
+      const allowedHosts = ['localhost', '127.0.0.1']
+      if (parsed.protocol === 'file:') return
+      if ((parsed.protocol === 'http:' || parsed.protocol === 'https:') && allowedHosts.includes(parsed.hostname)) return
+    } catch {}
+    event.preventDefault()
+    console.warn(`Blocked navigation to untrusted URL: ${url}`)
   })
 
   const routeArg = process.argv.find(arg => arg.startsWith('--route='))
@@ -716,6 +770,8 @@ app.whenReady().then(() => {
     return process.platform
   })
 
+  ipcMain.handle('get-api-secret', () => apiSecret)
+
   ipcMain.on('update-menu-state', (_, state) => {
     if (state && typeof state === 'object') {
       currentMenuState = { ...currentMenuState, ...state }
@@ -726,48 +782,6 @@ app.whenReady().then(() => {
   startBackend()
   createWindow()
   setupApplicationMenu()
-
-  try {
-    const testServer = http.createServer((req, res) => {
-      const urlObj = new URL(req.url || '/', 'http://127.0.0.1:58766')
-      res.setHeader('Access-Control-Allow-Origin', '*')
-      res.setHeader('Content-Type', 'application/json')
-
-      if (urlObj.pathname === '/navigate') {
-        const to = urlObj.searchParams.get('to') || '/'
-        const hash = to.startsWith('#') ? to : `#${to}`
-        mainWindow?.webContents.executeJavaScript(`window.location.hash = ${JSON.stringify(hash)}; true;`)
-          .then(() => {
-            res.writeHead(200)
-            res.end(JSON.stringify({ success: true, to }))
-          })
-          .catch((err) => {
-            res.writeHead(500)
-            res.end(JSON.stringify({ success: false, error: String(err) }))
-          })
-        return
-      }
-
-      if (urlObj.pathname === '/eval') {
-        const js = urlObj.searchParams.get('js') || ''
-        mainWindow?.webContents.executeJavaScript(js)
-          .then((result) => {
-            res.writeHead(200)
-            res.end(JSON.stringify({ success: true, result }))
-          })
-          .catch((err) => {
-            res.writeHead(500)
-            res.end(JSON.stringify({ success: false, error: String(err) }))
-          })
-        return
-      }
-
-      res.writeHead(404)
-      res.end(JSON.stringify({ error: 'Not found' }))
-    })
-
-    testServer.listen(58766, '127.0.0.1')
-  } catch {}
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) {

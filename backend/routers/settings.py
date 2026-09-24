@@ -3,6 +3,7 @@ Settings router — get/update app settings, reset library.
 """
 
 import logging
+import re
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -12,6 +13,15 @@ from backend.schemas.photo import SettingsUpdate
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+GITHUB_REPO_PATTERN = re.compile(r"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$")
+
+
+def validate_github_repo(value) -> None:
+    if value is None:
+        return
+    if not isinstance(value, str) or not GITHUB_REPO_PATTERN.match(value):
+        raise HTTPException(status_code=400, detail="Invalid github_repo format. Must be 'owner/repo'")
 
 
 def _settings_to_dict(s: SettingsModel) -> dict:
@@ -61,12 +71,15 @@ def get_settings(db: Session = Depends(get_db)):
 
 @router.put("/settings")
 def update_settings(body: SettingsUpdate, db: Session = Depends(get_db)):
+    data = body.model_dump()
+    if "github_repo" in data and data["github_repo"] is not None:
+        validate_github_repo(data["github_repo"])
     settings = db.query(SettingsModel).first()
     if not settings:
         settings = SettingsModel()
         db.add(settings)
 
-    for field, value in body.model_dump().items():
+    for field, value in data.items():
         if hasattr(settings, field):
             setattr(settings, field, value)
 

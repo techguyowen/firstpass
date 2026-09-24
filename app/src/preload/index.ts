@@ -28,6 +28,7 @@ const electronAPI = {
   updateMenuState: (state: Record<string, any>) => {
     ipcRenderer.send('update-menu-state', state)
   },
+  getApiSecret: () => ipcRenderer.invoke('get-api-secret'),
   platform: process.platform
 }
 

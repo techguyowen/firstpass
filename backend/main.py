@@ -4,13 +4,15 @@ Runs on http://localhost:58765
 """
 
 import os
+import secrets
 import sys
 import logging
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import uvicorn
 
 # ── Resolve data directory ─────────────────────────────────────────────────
@@ -29,6 +31,33 @@ os.environ.setdefault("FIRSTPASS_DB_PATH", str(DB_PATH))
 os.environ.setdefault("PHOTO_CULLER_DB_PATH", str(DB_PATH))
 os.environ.setdefault("FIRSTPASS_THUMBNAILS_DIR", str(THUMBNAILS_DIR))
 os.environ.setdefault("PHOTO_CULLER_THUMBNAILS_DIR", str(THUMBNAILS_DIR))
+
+# ── API secret (session token) ───────────────────────────────────────────
+def _load_or_create_api_secret() -> str:
+    env_secret = os.environ.get("FIRSTPASS_API_KEY", os.environ.get("PHOTO_CULLER_API_KEY", ""))
+    if env_secret:
+        return env_secret
+    token_file = DATA_DIR / ".session_token"
+    try:
+        if token_file.exists():
+            existing = token_file.read_text(encoding="utf-8").strip()
+            if existing:
+                return existing
+    except Exception:
+        pass
+    generated = secrets.token_hex(32)
+    try:
+        token_file.write_text(generated, encoding="utf-8")
+        try:
+            os.chmod(token_file, 0o600)
+        except Exception:
+            pass
+    except Exception:
+        pass
+    return generated
+
+
+API_SECRET = _load_or_create_api_secret()
 
 # ── Logging ────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -105,18 +134,56 @@ async def lifespan(app: FastAPI):
 # ── App ────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="FirstPass API",
-    version="1.0.0",
+    version="1.0.1",
     description="High-performance AI-powered photo culling backend",
     lifespan=lifespan,
 )
 
+ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:58765",
+    "http://127.0.0.1:58765",
+    "app://-",
+]
+_dev_url = os.environ.get("ELECTRON_RENDERER_URL")
+if _dev_url:
+    from urllib.parse import urlparse as _urlparse
+    _parsed = _urlparse(_dev_url)
+    if _parsed.scheme and _parsed.netloc:
+        _origin = f"{_parsed.scheme}://{_parsed.netloc}"
+        if _origin not in ALLOWED_ORIGINS:
+            ALLOWED_ORIGINS.append(_origin)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def _auth_middleware(request: Request, call_next):
+    path = request.url.path
+    if not path.startswith("/api/") or path in ("/api/health", "/docs", "/openapi.json"):
+        return await call_next(request)
+    if request.method == "OPTIONS":
+        return await call_next(request)
+    if API_SECRET:
+        token = request.headers.get("X-FirstPass-Token", "")
+        if not token:
+            auth = request.headers.get("Authorization", "")
+            if auth.startswith("Bearer "):
+                token = auth[len("Bearer "):].strip()
+            elif auth:
+                token = auth.strip()
+        if not token:
+            token = request.query_params.get("token", "")
+        if not secrets.compare_digest(token, API_SECRET):
+            return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
 
 # Include routers
 app.include_router(scan.router, prefix="/api")
@@ -131,7 +198,7 @@ async def health():
     gpu_info = getattr(app.state, "gpu_info", {"available": False, "type": "cpu", "name": "CPU"})
     return {
         "status": "ok",
-        "version": "1.0.0",
+        "version": "1.0.1",
         "gpu_available": gpu_info["available"],
         "gpu_type": gpu_info["type"],
         "gpu_name": gpu_info["name"],

@@ -75,7 +75,7 @@ class SettingsBase(BaseModel):
     auto_accept_threshold: float = 75.0
     thumbnail_size: int = 300
     gpu_enabled: bool = True
-    github_repo: str = "firstpass/firstpass"
+    github_repo: str = "techguyowen/firstpass"
     
     enable_blink_detection: bool = True
     enable_smile_detection: bool = True

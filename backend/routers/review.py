@@ -578,12 +578,26 @@ def export_photos(req: ExportRequest, db: Session = Depends(get_db)):
                 counter += 1
             try:
                 if req.action == "move":
-                    shutil.move(str(src), str(dst))
-                    p.path = str(dst)
-                    p.folder = str(dst.parent)
+                    try:
+                        shutil.move(str(src), str(dst))
+                        if not dst.exists():
+                            raise IOError(f"Moved file missing at destination {dst}")
+                        p.path = str(dst)
+                        p.folder = str(dst.parent)
+                        db.commit()
+                        count += 1
+                    except Exception as e:
+                        db.rollback()
+                        # Rollback file move if src missing and dst exists
+                        if not src.exists() and dst.exists():
+                            try:
+                                shutil.move(str(dst), str(src))
+                            except Exception as rollback_err:
+                                logger.error(f"Failed to rollback file move {dst} -> {src}: {rollback_err}")
+                        errors.append(f"{p.filename}: {e}")
                 else:
                     shutil.copy2(str(src), str(dst))
-                count += 1
+                    count += 1
             except Exception as e:
                 errors.append(str(e))
         db.commit()

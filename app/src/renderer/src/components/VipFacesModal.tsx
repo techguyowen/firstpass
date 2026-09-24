@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { X, Star, Loader2, UserCircle2 } from 'lucide-react'
 import axios from 'axios'
+import { api } from '../api/client'
 
 interface VipFacesModalProps {
   isOpen: boolean
@@ -15,8 +16,6 @@ interface VipFace {
   thumbnail_b64: string | null
   created_at: string
 }
-
-const API_BASE = 'http://localhost:58765'
 
 function VipFaceCard({
   vip,
@@ -44,7 +43,7 @@ function VipFaceCard({
         localStorage.setItem('firstpass_unpinned_vips', JSON.stringify(Array.from(keys)))
         localStorage.setItem('photo_culler_unpinned_vips', JSON.stringify(Array.from(keys)))
       } catch {}
-      await axios.delete(`${API_BASE}/api/vip-faces/${vip.id}`)
+      await api.removeVipFace(vip.id)
       onRemove(vip.id)
     } catch {
       setRemoving(false)
@@ -124,9 +123,9 @@ export default function VipFacesModal({ isOpen, onClose }: VipFacesModalProps) {
     if (!isOpen) return
     setLoading(true)
     setError(null)
-    axios
-      .get<{ vip_faces: VipFace[] }>(`${API_BASE}/api/vip-faces`)
-      .then((res) => setVips(res.data.vip_faces ?? []))
+    api
+      .getVipFaces()
+      .then((res) => setVips((res.vip_faces ?? []) as VipFace[]))
       .catch((err: unknown) => {
         const msg = axios.isAxiosError(err)
           ? err.message

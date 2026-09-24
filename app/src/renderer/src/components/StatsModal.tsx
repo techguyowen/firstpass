@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { X, BarChart2, Loader2 } from 'lucide-react'
 import clsx from 'clsx'
+import { api } from '../api/client'
 
 interface StatsModalProps {
   isOpen: boolean
@@ -30,7 +31,7 @@ interface StatsResponse {
   top_camera: string | null
 }
 
-const API_BASE = 'http://localhost:58765'
+
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return '—'
@@ -84,13 +85,9 @@ export default function StatsModal({ isOpen, onClose }: StatsModalProps) {
     if (!isOpen) return
     setLoading(true)
     setError(null)
-    fetch(`${API_BASE}/api/stats`)
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        return res.json() as Promise<StatsResponse>
-      })
+    api.getStats()
       .then((data) => {
-        setStats(data)
+        setStats(data as unknown as StatsResponse)
       })
       .catch((err: unknown) => {
         setError(err instanceof Error ? err.message : 'Failed to load stats')

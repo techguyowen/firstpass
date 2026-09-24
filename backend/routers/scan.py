@@ -1,9 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 import uuid
+import logging
 import os
 import concurrent.futures
 from PIL import Image
+
+logger = logging.getLogger(__name__)
 
 from ..database import get_db, DATA_DIR
 from ..models.photo import Photo, Settings
@@ -36,20 +39,22 @@ def scan_worker(job_id: str, folder_path: str):
             
         # 2. Insert records to DB
         photo_records = []
+        scan_errors = 0
         for i, filepath in enumerate(found_files):
             try:
                 # Check if already in DB
                 existing = db.query(Photo).filter(Photo.path == filepath).first()
                 if not existing:
                     stat = os.stat(filepath)
-                    
+
                     # Try to get basic dimensions
                     width, height = 0, 0
                     try:
                         with Image.open(filepath) as img:
                             width, height = img.size
-                    except:
-                        pass
+                    except Exception as e:
+                        logger.warning(f"Failed to probe dimensions for {filepath}: {e}")
+                        scan_errors += 1
                         
                     ext = os.path.splitext(filepath)[1].lower()
                     is_raw = ext in RAW_EXTS
@@ -68,8 +73,9 @@ def scan_worker(job_id: str, folder_path: str):
                     db.flush() # get ID
                     photo_records.append(photo.id)
             except Exception as e:
-                print(f"Error processing {filepath}: {e}")
-                
+                logger.warning(f"Error processing {filepath}: {e}")
+                scan_errors += 1
+
             if i % 100 == 0:
                 with jobs_lock:
                     jobs[job_id].progress = i
@@ -93,8 +99,9 @@ def scan_worker(job_id: str, folder_path: str):
                 try:
                     h = future.result()
                     photo_hashes.append((pid, h))
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to compute hash for photo ID {pid}: {e}")
+                    scan_errors += 1
                 if i % 50 == 0:
                     with jobs_lock:
                         jobs[job_id].progress = i
@@ -136,6 +143,8 @@ def scan_worker(job_id: str, folder_path: str):
             jobs[job_id].status = "done"
             jobs[job_id].progress = total_files
             jobs[job_id].message = "Scan completed. Ready for analysis."
+            if scan_errors:
+                jobs[job_id].message += f" ({scan_errors} file(s) had warnings — see log.)"
             
         db.close()
         

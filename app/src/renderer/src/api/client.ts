@@ -14,6 +14,46 @@ const axiosInstance = axios.create({
   timeout: 15000,
 })
 
+let cachedToken: string | null = null
+
+export async function initApiToken(): Promise<string> {
+  if (!cachedToken && typeof window !== 'undefined' && window.electronAPI?.getApiSecret) {
+    try {
+      cachedToken = await window.electronAPI.getApiSecret()
+    } catch (err) {
+      console.warn('Failed to get API secret from Electron:', err)
+    }
+  }
+  return cachedToken || ''
+}
+
+export function getApiToken(): string {
+  return cachedToken || ''
+}
+
+void initApiToken()
+
+axiosInstance.interceptors.request.use(async (config) => {
+  if (!cachedToken) {
+    await initApiToken()
+  }
+  if (cachedToken) {
+    config.headers['X-FirstPass-Token'] = cachedToken
+  }
+  return config
+})
+
+axiosInstance.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    if (error.response?.status === 401 && typeof window !== 'undefined' && window.electronAPI?.getApiSecret) {
+      cachedToken = null
+      await initApiToken()
+    }
+    return Promise.reject(error)
+  }
+)
+
 export const api = {
   async getHealth(): Promise<HealthResponse> {
     const { data } = await axiosInstance.get('/api/health')
@@ -56,11 +96,13 @@ export const api = {
   },
 
   getThumbnailUrl(id: number): string {
-    return `${BASE_URL}/api/photos/${id}/thumbnail`
+    const base = `${BASE_URL}/api/photos/${id}/thumbnail`
+    return cachedToken ? `${base}?token=${encodeURIComponent(cachedToken)}` : base
   },
 
   getFullImageUrl(id: number): string {
-    return `${BASE_URL}/api/photos/${id}/full`
+    const base = `${BASE_URL}/api/photos/${id}/full`
+    return cachedToken ? `${base}?token=${encodeURIComponent(cachedToken)}` : base
   },
 
   async getPhotoFaces(id: number): Promise<{ faces: FaceCrop[]; total: number }> {
@@ -69,7 +111,8 @@ export const api = {
   },
 
   getFaceCropUrl(photoId: number, faceIndex: number): string {
-    return `${BASE_URL}/api/photos/${photoId}/face/${faceIndex}`
+    const base = `${BASE_URL}/api/photos/${photoId}/face/${faceIndex}`
+    return cachedToken ? `${base}?token=${encodeURIComponent(cachedToken)}` : base
   },
 
   async getDuplicateGroups(): Promise<DuplicateGroup[]> {
@@ -185,3 +228,5 @@ export const api = {
 
 // Also export under legacy name for backward compatibility
 export const apiClient = api
+export { axiosInstance }
+export default api
