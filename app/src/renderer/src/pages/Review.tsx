@@ -1561,9 +1561,244 @@ export default function Review() {
   const isBottomSideBySide = showBottomModules && showBottomFilmstrip
 
   return (
-    <div className={clsx('flex h-full bg-black relative', fullscreen && 'fixed inset-0 z-50')}>
+    <div className={clsx('flex flex-col h-full bg-black relative overflow-hidden', fullscreen && 'fixed inset-0 z-50')}>
       {/* Universal 60fps Drag Ghost Overlay & Snap Lines */}
       <DragGhostOverlay />
+
+      {/* ── Full-width Top Bar (spans the window above the docks; can never bleed over ScorePanel) ── */}
+      <div className={clsx(
+        "flex items-center justify-between gap-1.5 md:gap-2 px-3 py-1.5 bg-neutral-950 border-b border-neutral-800 shrink-0 select-none overflow-hidden min-w-0 z-30 transition-opacity duration-300",
+        lightsOutLevel === 1 && "lights-out-dim",
+        lightsOutLevel === 2 && "lights-out-blackout pointer-events-none"
+      )}>
+        {/* LEFT ZONE: Document & Navigation */}
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 min-w-0">
+          <button
+            onClick={() => navigate('/')}
+            className="flex items-center gap-1 text-neutral-300 hover:text-white transition-colors cursor-pointer px-2 py-1 rounded-lg bg-neutral-800/80 hover:bg-neutral-700 border border-neutral-700/60 text-xs font-medium shrink-0"
+            title="Back to Gallery (Esc)"
+          >
+            <ArrowLeft size={13} />
+            <span className="hidden xl:inline">Gallery</span>
+          </button>
+
+          <div className="w-px h-5 bg-neutral-700/60 shrink-0" />
+
+          {/* Filename, status & counter */}
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="text-white text-xs font-semibold truncate max-w-[70px] sm:max-w-[90px] md:max-w-[120px] lg:max-w-[160px] xl:max-w-[200px]" title={photo.filename}>
+              {photo.filename}
+            </span>
+            <span
+              className={clsx(
+                'shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide border',
+                photo.status === 'accepted' && 'bg-emerald-500/15 text-emerald-300 border-emerald-500/50',
+                photo.status === 'rejected' && 'bg-rose-500/15 text-rose-300 border-rose-500/50',
+                photo.status === 'pending' && 'bg-neutral-800 text-neutral-400 border-neutral-700/60'
+              )}
+              title={`Status: ${photo.status}`}
+            >
+              {photo.status}
+            </span>
+            {currentIndex >= 0 && (
+              <span className="text-neutral-400 text-[11px] font-mono shrink-0 bg-neutral-800/90 px-1.5 py-0.5 rounded border border-neutral-700/50 hidden lg:inline-block">
+                {currentIndex + 1} / {photos.length}
+              </span>
+            )}
+          </div>
+
+          {/* Re-analyze AI (icon-only) */}
+          <button
+            onClick={handleReanalyze}
+            disabled={isReanalyzing || !photo}
+            className="p-1.5 text-xs rounded-lg border border-neutral-800 bg-neutral-900/90 hover:bg-neutral-800 text-neutral-400 hover:text-white disabled:opacity-40 transition-colors cursor-pointer shrink-0"
+            title="Re-analyze this photo with AI (Cmd+R)"
+          >
+            <RefreshCw size={12} className={isReanalyzing ? 'animate-spin text-purple-400' : 'text-neutral-500'} />
+          </button>
+        </div>
+
+        {/* CENTER ZONE: View Modes & Quick Triage */}
+        <div className="min-w-0 flex items-center gap-1 shrink-0">
+          {/* Segmented view mode toggle */}
+          <div
+            className="flex items-center p-0.5 rounded-lg bg-neutral-800/90 border border-neutral-700/60 shrink-0"
+            title="Review view mode"
+          >
+            <button
+              type="button"
+              className="px-2 sm:px-2.5 py-1 text-xs font-semibold rounded-md bg-neutral-700 text-white shadow-sm cursor-default"
+              title="Single photo review (Loupe) — current view"
+            >
+              Loupe
+            </button>
+            <button
+              type="button"
+              onClick={handleOpenCompare}
+              className="flex items-center gap-1 px-2 sm:px-2.5 py-1 text-xs rounded-md text-neutral-400 hover:text-white hover:bg-neutral-700/70 transition-colors cursor-pointer"
+              title="Side-by-Side 2-Up Compare (C)"
+            >
+              <Columns size={11} />
+              <span className="hidden lg:inline">Compare</span>
+            </button>
+          </div>
+
+          {/* Auto-Advance */}
+          <button
+            onClick={toggleAutoAdvance}
+            className={clsx(
+              'flex items-center gap-1 px-2 py-1 text-xs rounded-full border transition-colors cursor-pointer shrink-0',
+              autoAdvance
+                ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-300 font-semibold'
+                : 'border-neutral-800 bg-neutral-900/90 hover:bg-neutral-800 text-neutral-400 hover:text-white'
+            )}
+            title="Toggle Auto-Advance on Rating (Caps Lock)"
+          >
+            <Zap size={11} className={autoAdvance ? 'text-emerald-400 fill-emerald-400/30' : 'text-neutral-500'} />
+            <span className="hidden lg:inline">Auto-Advance</span>
+          </button>
+
+          {/* Tag Button */}
+          <button
+            onClick={() => photo && togglePhotoTag(photo.id)}
+            className={clsx(
+              'flex items-center gap-1 px-2 py-1 text-xs rounded-full border transition-colors cursor-pointer shrink-0',
+              photo?.is_tagged
+                ? 'bg-amber-500/20 border-amber-500/70 text-amber-300 font-bold shadow-sm'
+                : 'border-neutral-800 bg-neutral-900/90 hover:bg-neutral-800 text-neutral-400 hover:text-white'
+            )}
+            title="Toggle Tag ( \ )"
+          >
+            <span>🏷️</span>
+            <span className="hidden xl:inline">{photo?.is_tagged ? 'Tagged' : 'Tag'}</span>
+          </button>
+        </div>
+
+        {/* RIGHT ZONE: Consolidated Studio & View Tools */}
+        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 min-w-0">
+          {/* Info HUD (I) */}
+          <button
+            onClick={cycleHud}
+            className={clsx(
+              'flex items-center gap-1 px-2 py-1 text-xs rounded-lg border transition-colors cursor-pointer shrink-0',
+              hudMode > 0
+                ? 'bg-cyan-500/20 border-cyan-500/70 text-cyan-300 font-semibold'
+                : 'border-neutral-800 bg-neutral-900/90 hover:bg-neutral-800 text-neutral-400 hover:text-white'
+            )}
+            title="Cycle Photographic Info HUD: Triage / EXIF / Off (I)"
+          >
+            <Info size={12} className={hudMode > 0 ? 'text-cyan-400' : 'text-neutral-500'} />
+            <span className="hidden xl:inline text-xs">HUD</span>
+          </button>
+
+          {/* Lights Out (L) */}
+          <button
+            onClick={cycleLightsOut}
+            className={clsx(
+              'p-1.5 text-xs rounded-lg border transition-colors cursor-pointer shrink-0',
+              lightsOutLevel > 0
+                ? 'bg-amber-500/20 border-amber-500/70 text-amber-300 font-semibold'
+                : 'border-neutral-800 bg-neutral-900/90 hover:bg-neutral-800 text-neutral-400 hover:text-white'
+            )}
+            title="Lights Out Mode: Normal / 85% Dim / Blackout (L)"
+          >
+            <Moon size={12} className={lightsOutLevel > 0 ? 'text-amber-400' : 'text-neutral-500'} />
+          </button>
+
+          {/* View Options popover (menu rendered fixed at root to avoid overflow clipping) */}
+          <div className="shrink-0">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                if (viewOptionsAnchor) {
+                  setViewOptionsAnchor(null)
+                } else {
+                  const rect = e.currentTarget.getBoundingClientRect()
+                  setViewOptionsAnchor({
+                    x: rect.right,
+                    y: rect.bottom,
+                  })
+                }
+              }}
+              className={clsx(
+                'flex items-center gap-1 px-2 py-1 text-xs rounded-lg border transition-colors cursor-pointer shadow-sm',
+                viewOptionsAnchor
+                  ? 'bg-neutral-700 border-neutral-600 text-white'
+                  : 'border-neutral-700/80 bg-neutral-800/90 hover:bg-neutral-700 text-neutral-200 hover:text-white'
+              )}
+              title="View Options: clipping, histogram, face loupe, backdrop & filmstrip"
+            >
+              <Eye size={11} className="text-teal-400" />
+              <span className="font-medium hidden xl:inline">View</span>
+              <ChevronDown size={10} className="text-neutral-400" />
+            </button>
+          </div>
+
+          {/* Workspaces Dropdown (menu rendered fixed at root to avoid overflow clipping) */}
+          <div className="shrink-0">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                if (workspacesMenuAnchor) {
+                  setWorkspacesMenuAnchor(null)
+                } else {
+                  const rect = e.currentTarget.getBoundingClientRect()
+                  setWorkspacesMenuAnchor({
+                    x: rect.right,
+                    y: rect.bottom,
+                  })
+                }
+              }}
+              className="flex items-center gap-1.5 px-2 py-1 text-xs rounded-full border border-neutral-700/80 bg-neutral-800/90 hover:bg-neutral-700 text-neutral-200 hover:text-white transition-colors cursor-pointer shadow-sm"
+              title="Switch or Save Workspaces"
+            >
+              <SlidersHorizontal size={11} className="text-indigo-400" />
+              <span className="font-medium max-w-[50px] sm:max-w-[70px] md:max-w-[90px] lg:max-w-[120px] truncate">
+                {activeWorkspace?.name || 'Workspace'}
+              </span>
+              <ChevronDown size={10} className="text-neutral-400" />
+            </button>
+          </div>
+
+          {/* Customize Panels (Window > Customize Panels...) */}
+          <button
+            onClick={() => setShowPanelSelector(true)}
+            className="flex items-center gap-1 px-2 py-1 text-xs rounded-lg border border-neutral-800 bg-neutral-900/90 hover:bg-neutral-800 text-neutral-400 hover:text-white transition-colors cursor-pointer shrink-0"
+            title="Show or hide any panel (Customize Panels...)"
+          >
+            <LayoutGrid size={12} className="text-neutral-400" />
+            <span className="hidden 2xl:inline text-xs">Panels</span>
+          </button>
+
+          {/* Inspector / Score Panel Toggle (Tab) */}
+          <button
+            onClick={toggleScorePanel}
+            className={clsx(
+              'flex items-center gap-1 px-2 py-1 text-xs rounded-lg border transition-colors cursor-pointer shrink-0',
+              scorePanelDock !== 'collapsed'
+                ? 'bg-blue-500/20 border-blue-500/70 text-blue-300 font-semibold'
+                : 'border-neutral-800 bg-neutral-900/90 hover:bg-neutral-800 text-neutral-400 hover:text-white'
+            )}
+            title="Toggle Inspector Sidebar (Tab)"
+          >
+            <Sliders size={12} className={scorePanelDock !== 'collapsed' ? 'text-blue-400' : 'text-neutral-500'} />
+            <span className="hidden 2xl:inline text-xs">Inspector</span>
+            {scorePanelDock !== 'collapsed' ? <ChevronsRight size={11} className="text-blue-300" /> : <ChevronsLeft size={11} className="text-neutral-400" />}
+          </button>
+
+          {/* Fullscreen (F) */}
+          <button
+            onClick={() => setFullscreen(f => !f)}
+            className="text-neutral-400 hover:text-white transition-colors cursor-pointer p-1.5 rounded-lg hover:bg-neutral-800 shrink-0"
+            title="Toggle fullscreen (F)"
+          >
+            <Maximize2 size={13} />
+          </button>
+        </div>
+      </div>
+
+      {/* Workspace Body (Docked Panels + Canvas) */}
+      <div className="flex flex-1 min-h-0 min-w-0 relative overflow-hidden">
 
       {/* ── Left Collapsed Icon Strip (48px Compact State) ── */}
       {scorePanelDock === 'collapsed' && lastActiveDockRef.current === 'left' && !fullscreen && (
@@ -1705,239 +1940,7 @@ export default function Review() {
       )}
 
       {/* ── Main: Image area ── */}
-      <div className="flex flex-col flex-1 min-w-0 relative">
-        {/* Top bar */}
-        <div className={clsx(
-          "flex items-center justify-between gap-2.5 px-3 py-1.5 bg-neutral-900/90 backdrop-blur flex-shrink-0 transition-opacity duration-300 border-b border-neutral-800/80 select-none overflow-visible relative z-30",
-          lightsOutLevel === 1 && "lights-out-dim",
-          lightsOutLevel === 2 && "lights-out-blackout pointer-events-none"
-        )}>
-          {/* LEFT ZONE: Document & Navigation */}
-          <div className="flex items-center gap-2 shrink-0 min-w-0">
-            <button
-              onClick={() => navigate('/')}
-              className="flex items-center gap-1 text-neutral-300 hover:text-white transition-colors cursor-pointer px-2 py-1 rounded-lg bg-neutral-800/80 hover:bg-neutral-700 border border-neutral-700/60 text-xs font-medium shrink-0"
-              title="Back to Gallery (Esc)"
-            >
-              <ArrowLeft size={13} />
-              <span>Gallery</span>
-            </button>
-
-            <div className="w-px h-5 bg-neutral-700/60 shrink-0" />
-
-            {/* Filename, status & counter */}
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span className="text-white text-xs font-semibold truncate max-w-[90px] sm:max-w-[130px] md:max-w-[180px]" title={photo.filename}>
-                {photo.filename}
-              </span>
-              <span
-                className={clsx(
-                  'shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide border',
-                  photo.status === 'accepted' && 'bg-emerald-500/15 text-emerald-300 border-emerald-500/50',
-                  photo.status === 'rejected' && 'bg-rose-500/15 text-rose-300 border-rose-500/50',
-                  photo.status === 'pending' && 'bg-neutral-800 text-neutral-400 border-neutral-700/60'
-                )}
-                title={`Status: ${photo.status}`}
-              >
-                {photo.status}
-              </span>
-              {currentIndex >= 0 && (
-                <span className="text-neutral-400 text-[11px] font-mono shrink-0 bg-neutral-800/90 px-1.5 py-0.5 rounded border border-neutral-700/50">
-                  {currentIndex + 1} / {photos.length}
-                </span>
-              )}
-            </div>
-
-            {/* Re-analyze AI (icon-only) */}
-            <button
-              onClick={handleReanalyze}
-              disabled={isReanalyzing || !photo}
-              className="p-1.5 text-xs rounded-lg border border-neutral-800 bg-neutral-900/90 hover:bg-neutral-800 text-neutral-400 hover:text-white disabled:opacity-40 transition-colors cursor-pointer shrink-0"
-              title="Re-analyze this photo with AI (Cmd+R)"
-            >
-              <RefreshCw size={12} className={isReanalyzing ? 'animate-spin text-purple-400' : 'text-neutral-500'} />
-            </button>
-          </div>
-
-          {/* CENTER ZONE: View Modes & Quick Triage */}
-          <div className="flex items-center gap-1.5 shrink-0">
-            {/* Segmented view mode toggle */}
-            <div
-              className="flex items-center p-0.5 rounded-lg bg-neutral-800/90 border border-neutral-700/60 shrink-0"
-              title="Review view mode"
-            >
-              <button
-                type="button"
-                className="px-2.5 py-1 text-xs font-semibold rounded-md bg-neutral-700 text-white shadow-sm cursor-default"
-                title="Single photo review (Loupe) — current view"
-              >
-                Loupe
-              </button>
-              <button
-                type="button"
-                onClick={handleOpenCompare}
-                className="flex items-center gap-1 px-2.5 py-1 text-xs rounded-md text-neutral-400 hover:text-white hover:bg-neutral-700/70 transition-colors cursor-pointer"
-                title="Side-by-Side 2-Up Compare (C)"
-              >
-                <Columns size={11} />
-                <span className="hidden md:inline">Compare</span>
-              </button>
-            </div>
-
-            {/* Auto-Advance */}
-            <button
-              onClick={toggleAutoAdvance}
-              className={clsx(
-                'flex items-center gap-1 px-2 py-1 text-xs rounded-full border transition-colors cursor-pointer shrink-0',
-                autoAdvance
-                  ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-300 font-semibold'
-                  : 'border-neutral-800 bg-neutral-900/90 hover:bg-neutral-800 text-neutral-400 hover:text-white'
-              )}
-              title="Toggle Auto-Advance on Rating (Caps Lock)"
-            >
-              <Zap size={11} className={autoAdvance ? 'text-emerald-400 fill-emerald-400/30' : 'text-neutral-500'} />
-              <span className="hidden md:inline">Auto-Advance</span>
-            </button>
-
-            {/* Tag Button */}
-            <button
-              onClick={() => photo && togglePhotoTag(photo.id)}
-              className={clsx(
-                'flex items-center gap-1 px-2 py-1 text-xs rounded-full border transition-colors cursor-pointer shrink-0',
-                photo?.is_tagged
-                  ? 'bg-amber-500/20 border-amber-500/70 text-amber-300 font-bold shadow-sm'
-                  : 'border-neutral-800 bg-neutral-900/90 hover:bg-neutral-800 text-neutral-400 hover:text-white'
-              )}
-              title="Toggle Tag ( \\ )"
-            >
-              <span>🏷️</span>
-              <span className="hidden lg:inline">{photo?.is_tagged ? 'Tagged' : 'Tag'}</span>
-            </button>
-          </div>
-
-          {/* RIGHT ZONE: Consolidated Studio & View Tools */}
-          <div className="flex items-center gap-1.5 shrink-0">
-            {/* Info HUD (I) */}
-            <button
-              onClick={cycleHud}
-              className={clsx(
-                'flex items-center gap-1 px-2 py-1 text-xs rounded-lg border transition-colors cursor-pointer shrink-0',
-                hudMode > 0
-                  ? 'bg-cyan-500/20 border-cyan-500/70 text-cyan-300 font-semibold'
-                  : 'border-neutral-800 bg-neutral-900/90 hover:bg-neutral-800 text-neutral-400 hover:text-white'
-              )}
-              title="Cycle Photographic Info HUD: Triage / EXIF / Off (I)"
-            >
-              <Info size={12} className={hudMode > 0 ? 'text-cyan-400' : 'text-neutral-500'} />
-              <span className="hidden xl:inline text-xs">HUD</span>
-            </button>
-
-            {/* Lights Out (L) */}
-            <button
-              onClick={cycleLightsOut}
-              className={clsx(
-                'p-1.5 text-xs rounded-lg border transition-colors cursor-pointer shrink-0',
-                lightsOutLevel > 0
-                  ? 'bg-amber-500/20 border-amber-500/70 text-amber-300 font-semibold'
-                  : 'border-neutral-800 bg-neutral-900/90 hover:bg-neutral-800 text-neutral-400 hover:text-white'
-              )}
-              title="Lights Out Mode: Normal / 85% Dim / Blackout (L)"
-            >
-              <Moon size={12} className={lightsOutLevel > 0 ? 'text-amber-400' : 'text-neutral-500'} />
-            </button>
-
-            {/* View Options popover (menu rendered fixed at root to avoid overflow clipping) */}
-            <div className="shrink-0">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  if (viewOptionsAnchor) {
-                    setViewOptionsAnchor(null)
-                  } else {
-                    const rect = e.currentTarget.getBoundingClientRect()
-                    setViewOptionsAnchor({
-                      x: rect.right,
-                      y: rect.bottom,
-                    })
-                  }
-                }}
-                className={clsx(
-                  'flex items-center gap-1 px-2 py-1 text-xs rounded-lg border transition-colors cursor-pointer shadow-sm',
-                  viewOptionsAnchor
-                    ? 'bg-neutral-700 border-neutral-600 text-white'
-                    : 'border-neutral-700/80 bg-neutral-800/90 hover:bg-neutral-700 text-neutral-200 hover:text-white'
-                )}
-                title="View Options: clipping, histogram, face loupe, backdrop & filmstrip"
-              >
-                <Eye size={11} className="text-teal-400" />
-                <span className="font-medium hidden lg:inline">View</span>
-                <ChevronDown size={10} className="text-neutral-400" />
-              </button>
-            </div>
-
-            {/* Workspaces Dropdown (menu rendered fixed at root to avoid overflow clipping) */}
-            <div className="shrink-0">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  if (workspacesMenuAnchor) {
-                    setWorkspacesMenuAnchor(null)
-                  } else {
-                    const rect = e.currentTarget.getBoundingClientRect()
-                    setWorkspacesMenuAnchor({
-                      x: rect.right,
-                      y: rect.bottom,
-                    })
-                  }
-                }}
-                className="flex items-center gap-1.5 px-2 py-1 text-xs rounded-full border border-neutral-700/80 bg-neutral-800/90 hover:bg-neutral-700 text-neutral-200 hover:text-white transition-colors cursor-pointer shadow-sm"
-                title="Switch or Save Workspaces"
-              >
-                <SlidersHorizontal size={11} className="text-indigo-400" />
-                <span className="font-medium max-w-[90px] sm:max-w-[120px] truncate">
-                  {activeWorkspace?.name || 'Workspace'}
-                </span>
-                <ChevronDown size={10} className="text-neutral-400" />
-              </button>
-            </div>
-
-            {/* Customize Panels (Window > Customize Panels...) */}
-            <button
-              onClick={() => setShowPanelSelector(true)}
-              className="flex items-center gap-1 px-2 py-1 text-xs rounded-lg border border-neutral-800 bg-neutral-900/90 hover:bg-neutral-800 text-neutral-400 hover:text-white transition-colors cursor-pointer shrink-0"
-              title="Show or hide any panel (Customize Panels...)"
-            >
-              <LayoutGrid size={12} className="text-neutral-500" />
-              <span className="hidden xl:inline text-xs">Panels</span>
-            </button>
-
-            {/* Inspector / Score Panel Toggle (Tab) */}
-            <button
-              onClick={toggleScorePanel}
-              className={clsx(
-                'flex items-center gap-1 px-2 py-1 text-xs rounded-lg border transition-colors cursor-pointer shrink-0',
-                scorePanelDock !== 'collapsed'
-                  ? 'bg-blue-500/20 border-blue-500/70 text-blue-300 font-semibold'
-                  : 'border-neutral-800 bg-neutral-900/90 hover:bg-neutral-800 text-neutral-400 hover:text-white'
-              )}
-              title="Toggle Inspector Sidebar (Tab)"
-            >
-              <Sliders size={12} className={scorePanelDock !== 'collapsed' ? 'text-blue-400' : 'text-neutral-500'} />
-              <span className="hidden xl:inline text-xs">Inspector</span>
-              {scorePanelDock !== 'collapsed' ? <ChevronsRight size={11} className="text-blue-300" /> : <ChevronsLeft size={11} className="text-neutral-400" />}
-            </button>
-
-            {/* Fullscreen (F) */}
-            <button
-              onClick={() => setFullscreen(f => !f)}
-              className="text-neutral-400 hover:text-white transition-colors cursor-pointer p-1.5 rounded-lg hover:bg-neutral-800 shrink-0"
-              title="Toggle fullscreen (F)"
-            >
-              <Maximize2 size={13} />
-            </button>
-          </div>
-        </div>
-
+      <div className="flex flex-col flex-1 min-w-0 min-h-0 relative overflow-hidden">
         {/* Image viewer */}
         <div
           onClick={() => {
@@ -2872,6 +2875,8 @@ export default function Review() {
           </div>
         </div>
       )}
+
+      </div>{/* ── End Workspace Body (Docked Panels + Canvas) ── */}
 
       {/* ── Flyout Pop-Out Panel Overlay (When collapsed to icons) ── */}
       {scorePanelDock === 'collapsed' && activeFlyoutModule && !fullscreen && (
