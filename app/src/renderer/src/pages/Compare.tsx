@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft, Check, X, ZoomIn, ZoomOut, Crown, Camera, Sparkles,
   Lock, Unlock, ChevronLeft, ChevronRight, ChevronDown, Maximize2, Minimize2,
-  Users, Eye, Layers, RotateCcw, RotateCw, ArrowLeftRight, Pin
+  Users, Eye, Layers, RotateCcw, RotateCw, ArrowLeftRight, Pin, FolderUp
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '../api/client'
@@ -15,7 +15,7 @@ import FirstPassLoader from '../components/FirstPassLoader'
 export const Compare: React.FC = () => {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { photos: storePhotos, updatePhotoStatusLocal, setActivePhotoId, fetchPhotos } = usePhotosStore()
+  const { photos: storePhotos, updatePhotoStatusLocal, setActivePhotoId, fetchPhotos, togglePhotoTag } = usePhotosStore()
 
   const returnTo = searchParams.get('returnTo') || '/'
   const handleBack = useCallback(() => navigate(returnTo), [navigate, returnTo])
@@ -326,6 +326,45 @@ export const Compare: React.FC = () => {
             handleSetStatus(comparePhotos[1].id, 'rejected')
           }
           break
+        case 'rate-pending':
+          if (comparePhotos[activeSlot]) {
+            handleSetStatus(comparePhotos[activeSlot].id, 'pending')
+          }
+          break
+        case 'toggle-tag':
+          if (comparePhotos[activeSlot]) {
+            togglePhotoTag(comparePhotos[activeSlot].id)
+            setComparePhotos(prev => prev.map(p => p.id === comparePhotos[activeSlot].id ? { ...p, is_tagged: !p.is_tagged } : p))
+          }
+          break
+        case 'prev-photo':
+          navigateCandidate('prev')
+          break
+        case 'next-photo':
+          navigateCandidate('next')
+          break
+        case 'first-photo':
+          if (storePhotos.length > 0) {
+            const first = storePhotos[0]
+            setActivePhotoId(first.id)
+            setComparePhotos(prev => {
+              const next = [...prev]
+              if (next.length > activeSlot) next[activeSlot] = first
+              return next
+            })
+          }
+          break
+        case 'last-photo':
+          if (storePhotos.length > 0) {
+            const last = storePhotos[storePhotos.length - 1]
+            setActivePhotoId(last.id)
+            setComparePhotos(prev => {
+              const next = [...prev]
+              if (next.length > activeSlot) next[activeSlot] = last
+              return next
+            })
+          }
+          break
         case 'toggle-zoom': {
           const current = slotViews[activeSlot] || DEFAULT_SLOT_VIEW
           patchSlotView(activeSlot, current.zoom > 1 ? { zoom: 1, pan: { x: 0, y: 0 } } : { zoom: 2.5, pan: { x: 0, y: 0 } })
@@ -334,6 +373,35 @@ export const Compare: React.FC = () => {
         case 'zoom-fit':
           patchSlotView(activeSlot, { zoom: 1, pan: { x: 0, y: 0 } })
           break
+        case 'zoom-100':
+          patchSlotView(activeSlot, { zoom: 1, pan: { x: 0, y: 0 } })
+          break
+        case 'zoom-200':
+          patchSlotView(activeSlot, { zoom: 2, pan: { x: 0, y: 0 } })
+          break
+        case 'zoom-in': {
+          const current = slotViews[activeSlot] || DEFAULT_SLOT_VIEW
+          patchSlotView(activeSlot, { zoom: Math.min(4, current.zoom + 0.5) })
+          break
+        }
+        case 'zoom-out': {
+          const current = slotViews[activeSlot] || DEFAULT_SLOT_VIEW
+          patchSlotView(activeSlot, { zoom: Math.max(1, current.zoom - 0.5) })
+          break
+        }
+        case 'reanalyze-active': {
+          const activePhoto = comparePhotos[activeSlot]
+          if (activePhoto) {
+            toast(`Re-analyzing ${activePhoto.filename}...`, { icon: '🔄', id: 'reanalyze-compare' })
+            api.reanalyzePhoto(activePhoto.id)
+              .then((updated) => {
+                setComparePhotos(prev => prev.map(p => p.id === updated.id ? updated : p))
+                toast.success(`Re-analyzed ${activePhoto.filename}!`, { id: 'reanalyze-compare' })
+              })
+              .catch(() => toast.error('Re-analysis failed', { id: 'reanalyze-compare' }))
+          }
+          break
+        }
         case 'match-zoom':
           handleMatchZoom()
           break
@@ -346,12 +414,33 @@ export const Compare: React.FC = () => {
         case 'match-all':
           handleMatchAll()
           break
+        case 'open-export':
+        case 'quick-export':
+          window.dispatchEvent(
+            new CustomEvent('app:open-export', {
+              detail: {
+                selectedIds: comparePhotos.map(p => p.id),
+                initialScope: 'accepted'
+              }
+            })
+          )
+          break
+        case 'export-tagged':
+          window.dispatchEvent(
+            new CustomEvent('app:open-export', {
+              detail: {
+                selectedIds: comparePhotos.map(p => p.id),
+                initialScope: 'tagged'
+              }
+            })
+          )
+          break
       }
     }
 
     window.addEventListener('app:menu-action', handleAppMenuAction)
     return () => window.removeEventListener('app:menu-action', handleAppMenuAction)
-  }, [comparePhotos, activeSlot, handleSetStatus, slotViews, patchSlotView, handleMatchZoom, handleMatchLocation, handleMatchRotation, handleMatchAll])
+  }, [comparePhotos, activeSlot, handleSetStatus, slotViews, patchSlotView, handleMatchZoom, handleMatchLocation, handleMatchRotation, handleMatchAll, navigateCandidate, togglePhotoTag, storePhotos, setActivePhotoId])
 
   // Drag to pan handling (per-slot: each comparison slot pans independently)
   const handleMouseDown = (e: React.MouseEvent, slot: number) => {
@@ -578,6 +667,25 @@ export const Compare: React.FC = () => {
           >
             <Layers size={12} />
             <span>Filmstrip</span>
+          </button>
+
+          {/* Global Export Button */}
+          <button
+            onClick={() => {
+              window.dispatchEvent(
+                new CustomEvent('app:open-export', {
+                  detail: {
+                    selectedIds: comparePhotos.map(p => p.id),
+                    initialScope: 'accepted'
+                  }
+                })
+              )
+            }}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-neutral-200 hover:text-white bg-neutral-800 hover:bg-neutral-750 border border-neutral-700/80 rounded-lg transition-colors cursor-pointer"
+            title="Export Culled Photos (Cmd+E)"
+          >
+            <FolderUp size={12} className="text-indigo-400" />
+            <span>Export</span>
           </button>
         </div>
       </div>

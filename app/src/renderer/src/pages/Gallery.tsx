@@ -14,7 +14,6 @@ import PhotoCard from '../components/PhotoCard'
 import FilterBar from '../components/FilterBar'
 import ProgressModal from '../components/ProgressModal'
 import WelcomeScreen from '../components/WelcomeScreen'
-import ExportModal from '../components/ExportModal'
 import TargetDeliveryModal from '../components/TargetDeliveryModal'
 import ViewOptionsMenu from '../components/ViewOptionsMenu'
 import QuickLoupeModal from '../components/QuickLoupeModal'
@@ -43,8 +42,18 @@ export default function Gallery() {
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [lastClickedIdx, setLastClickedIdx] = useState<number | null>(null)
   const [stats, setStats] = useState({ accepted: 0, rejected: 0, pending: 0 })
-  const [showExportModal, setShowExportModal] = useState(false)
   const [showDeliveryModal, setShowDeliveryModal] = useState(false)
+
+  const openExport = (initialScope?: 'accepted' | 'tagged' | 'tagged_selected' | 'rejected' | 'selected') => {
+    window.dispatchEvent(
+      new CustomEvent('app:open-export', {
+        detail: {
+          selectedIds: Array.from(selected),
+          initialScope: initialScope || (selected.size > 0 ? 'selected' : 'accepted')
+        }
+      })
+    )
+  }
   const [showQuickLoupe, setShowQuickLoupe] = useState(false)
   const [showStatsModal, setShowStatsModal] = useState(false)
   const [showVipModal, setShowVipModal] = useState(false)
@@ -244,7 +253,7 @@ export default function Gallery() {
       }
 
       // Pause grid hotkeys if modal overlays are active
-      if (showQuickLoupe || showExportModal || showDeliveryModal) return
+      if (showQuickLoupe || showDeliveryModal) return
       if (displayedPhotos.length === 0) return
 
       const curPhoto = displayedPhotos[focusedIdx]
@@ -346,7 +355,6 @@ export default function Gallery() {
     focusedIdx,
     columnCount,
     showQuickLoupe,
-    showExportModal,
     showDeliveryModal,
     undo,
     redo,
@@ -364,10 +372,13 @@ export default function Gallery() {
       const { action } = (e as CustomEvent).detail || {}
       switch (action) {
         case 'open-export':
-          setShowExportModal(true)
+          openExport('accepted')
           break
         case 'quick-export':
-          setShowExportModal(true)
+          openExport('accepted')
+          break
+        case 'export-tagged':
+          openExport('tagged')
           break
         case 'auto-pick-duplicates': {
           toast('Auto-picking best duplicates...', { icon: '🏆', id: 'auto-pick-toast' })
@@ -404,6 +415,10 @@ export default function Gallery() {
           }
           break
         case 'select-all':
+          if (['INPUT', 'TEXTAREA'].includes((document.activeElement as HTMLElement)?.tagName || '')) {
+            (document.activeElement as HTMLInputElement | HTMLTextAreaElement).select?.()
+            break
+          }
           setSelected(new Set(displayedPhotos.map(p => p.id)))
           toast(`Selected all ${displayedPhotos.length} photos`, { id: 'select-toast' })
           break
@@ -448,6 +463,9 @@ export default function Gallery() {
             setPhotoStatusWithUndo(displayedPhotos[focusedIdx].id, 'pending')
           }
           break
+        case 'rate-skip':
+          setFocusedIdx(prev => Math.min(displayedPhotos.length - 1, prev + 1))
+          break
         case 'toggle-tag':
           if (selected.size > 0) {
             for (const id of selected) {
@@ -457,18 +475,43 @@ export default function Gallery() {
             togglePhotoTag(displayedPhotos[focusedIdx].id)
           }
           break
+        case 'reanalyze-active': {
+          const targetPhoto = displayedPhotos[focusedIdx]
+          if (targetPhoto) {
+            toast(`Re-analyzing ${targetPhoto.filename}...`, { icon: '🔄', id: 'reanalyze-gallery' })
+            api.reanalyzePhoto(targetPhoto.id)
+              .then(() => {
+                loadPhotos()
+                toast.success(`Re-analyzed ${targetPhoto.filename}!`, { id: 'reanalyze-gallery' })
+              })
+              .catch(() => toast.error('Re-analysis failed', { id: 'reanalyze-gallery' }))
+          }
+          break
+        }
         case 'analyze-all':
           startAnalysis().catch(() => toast.error('Analysis failed to start'))
           break
         case 'toggle-burst-stacking':
           setViewOptions({ collapseBursts: !viewOptions.collapseBursts })
           break
+        case 'prev-photo':
+          setFocusedIdx(prev => Math.max(0, prev - 1))
+          break
+        case 'next-photo':
+          setFocusedIdx(prev => Math.min(displayedPhotos.length - 1, prev + 1))
+          break
+        case 'first-photo':
+          setFocusedIdx(0)
+          break
+        case 'last-photo':
+          setFocusedIdx(Math.max(0, displayedPhotos.length - 1))
+          break
       }
     }
 
     window.addEventListener('app:menu-action', handleAppMenuAction)
     return () => window.removeEventListener('app:menu-action', handleAppMenuAction)
-  }, [folders, startScan, resetLibrary, displayedPhotos, selected, focusedIdx, setPhotoStatusWithUndo, autoAdvance, togglePhotoTag, startAnalysis, viewOptions.collapseBursts, setViewOptions])
+  }, [folders, startScan, resetLibrary, displayedPhotos, selected, focusedIdx, setPhotoStatusWithUndo, autoAdvance, togglePhotoTag, startAnalysis, viewOptions.collapseBursts, setViewOptions, loadPhotos])
 
   // Sync menu state with Gallery options
   useEffect(() => {
@@ -632,7 +675,7 @@ export default function Gallery() {
 
         {totalPhotos > 0 && (
           <button
-            onClick={() => setShowExportModal(true)}
+            onClick={() => openExport()}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 hover:text-white text-xs font-semibold rounded-lg border border-neutral-700 transition-colors cursor-pointer"
             title="Export keepers, XMP sidecars, or clean up rejected photos"
           >
@@ -761,7 +804,7 @@ export default function Gallery() {
             </button>
           )}
           <button
-            onClick={() => setShowExportModal(true)}
+            onClick={() => openExport('selected')}
             className="flex items-center gap-1.5 px-3 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs rounded-md border border-neutral-700 transition-colors"
           >
             <FolderUp size={12} className="text-indigo-400" /> Export Selected
@@ -927,13 +970,6 @@ export default function Gallery() {
           total={totalPhotos}
           gpuActive={gpuAvailable}
           gpuType={gpuType}
-        />
-      )}
-      {/* Export modal */}
-      {showExportModal && (
-        <ExportModal
-          onClose={() => setShowExportModal(false)}
-          selectedIds={Array.from(selected)}
         />
       )}
       {/* Target delivery modal */}

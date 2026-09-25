@@ -19,6 +19,13 @@ from pathlib import Path
 
 BASE_URL = "http://localhost:58765/api"
 
+_token_file = Path.home() / ".photo-culler" / ".session_token"
+_token = _token_file.read_text(encoding="utf-8").strip() if _token_file.exists() else ""
+_session = requests.Session()
+if _token:
+    _session.headers.update({"X-FirstPass-Token": _token})
+requests = _session
+
 def audit_log(section, status, details=""):
     symbol = "✓" if status == "PASS" else ("⚠" if status == "WARN" else "✗")
     print(f"[{status}] {symbol} {section}")
@@ -165,11 +172,19 @@ def test_export_endpoints():
     # 1. Test XMP export
     res_xmp = requests.post(f"{BASE_URL}/export", json={"photo_ids": [pid], "action": "xmp"})
     assert res_xmp.status_code == 200
-    assert res_xmp.json()["success"] is True
+    job_id = res_xmp.json().get("job_id")
+    assert job_id is not None
+    
+    # Wait for export result
+    time.sleep(0.5)
+    res_res = requests.get(f"{BASE_URL}/export/result/{job_id}")
+    if res_res.status_code == 200:
+        assert res_res.json().get("success") is True
     
     # 2. Test Mark Only export
     res_mark = requests.post(f"{BASE_URL}/export", json={"photo_ids": [pid], "action": "mark_only"})
     assert res_mark.status_code == 200
+    assert res_mark.json().get("job_id") is not None
     
     # 3. Test Invalid Action
     res_inv = requests.post(f"{BASE_URL}/export", json={"photo_ids": [pid], "action": "invalid_action"})

@@ -558,12 +558,16 @@ def export_worker(job_id: str, photo_ids: list, action: str, destination_folder:
                     if not src.exists():
                         errors.append(f"{p.filename} not found")
                     else:
+                        is_tagged = bool(getattr(p, 'is_tagged', False))
                         if p.status == "accepted":
                             rating = 5
-                            label = "Green"
+                            label = "Blue" if is_tagged else "Green"
                         elif p.status == "rejected":
                             rating = 1
                             label = "Red"
+                        elif is_tagged:
+                            rating = 3
+                            label = "Blue"
                         else:
                             rating = 0
                             label = ""

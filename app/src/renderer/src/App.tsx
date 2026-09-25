@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { usePhotosStore } from './store/photosStore';
-import { Settings as SettingsIcon, LayoutGrid, Columns, Download, HelpCircle, Eye, Palette } from 'lucide-react';
+import { Settings as SettingsIcon, LayoutGrid, Columns, Download, HelpCircle, Eye, Palette, FolderUp } from 'lucide-react';
 import Gallery from './pages/Gallery';
 import Review from './pages/Review';
 import Settings from './pages/Settings';
@@ -10,6 +10,9 @@ import WelcomeScreen from './components/WelcomeScreen';
 import UpdateModal from './components/UpdateModal';
 import ShortcutsModal from './components/ShortcutsModal';
 import ThemePickerModal from './components/ThemePickerModal';
+import ExportModal from './components/ExportModal';
+import TargetDeliveryModal from './components/TargetDeliveryModal';
+import VipFacesModal from './components/VipFacesModal';
 import { applyTheme, getStoredThemeId } from './theme/themes';
 import { api } from './api/client';
 import toast from 'react-hot-toast';
@@ -27,6 +30,11 @@ export default function App() {
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
   const [showThemeModal, setShowThemeModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [showDeliveryModal, setShowDeliveryModal] = useState(false);
+  const [showVipModal, setShowVipModal] = useState(false);
+  const [exportSelectedIds, setExportSelectedIds] = useState<number[]>([]);
+  const [exportInitialScope, setExportInitialScope] = useState<'accepted' | 'tagged' | 'tagged_selected' | 'rejected' | 'selected'>('accepted');
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -86,9 +94,25 @@ export default function App() {
       if (e.key === '?' || (e.shiftKey && e.key === '/')) {
         e.preventDefault();
         setShowShortcutsModal((prev) => !prev);
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'e') {
+        e.preventDefault();
+        setExportInitialScope(e.shiftKey ? 'tagged' : 'accepted');
+        setExportSelectedIds([]);
+        setShowExportModal(true);
+        return;
       }
     };
     window.addEventListener('keydown', handleKeyDown);
+
+    const handleOpenExport = (e: Event) => {
+      const detail = (e as CustomEvent).detail || {};
+      if (detail.selectedIds) setExportSelectedIds(detail.selectedIds);
+      if (detail.initialScope) setExportInitialScope(detail.initialScope);
+      setShowExportModal(true);
+    };
+    window.addEventListener('app:open-export', handleOpenExport);
 
     const cleanShortcuts = window.electronAPI?.onOpenShortcuts?.(() => {
       setShowShortcutsModal(true);
@@ -100,6 +124,17 @@ export default function App() {
     // Native Application Menu Action Listener
     const cleanMenu = window.electronAPI?.onMenuAction?.(async (action: string, payload?: any) => {
       switch (action) {
+        case 'open-export':
+        case 'quick-export':
+          setExportInitialScope('accepted');
+          setExportSelectedIds([]);
+          setShowExportModal(true);
+          break;
+        case 'export-tagged':
+          setExportInitialScope('tagged');
+          setExportSelectedIds([]);
+          setShowExportModal(true);
+          break;
         case 'navigate-gallery':
           handleGoGallery();
           break;
@@ -154,6 +189,61 @@ export default function App() {
           }
           break;
         }
+        case 'open-delivery-target':
+          setShowDeliveryModal(true);
+          break;
+        case 'open-vip-modal':
+          setShowVipModal(true);
+          break;
+        case 'analyze-all': {
+          const store = usePhotosStore.getState();
+          if (store.photos.length > 0) {
+            toast('Starting AI re-analysis on entire shoot...', { icon: '⚡', id: 'analyze-shoot' });
+            store.startAnalysis().catch(() => toast.error('Analysis failed to start'));
+          } else {
+            toast('No photos loaded to analyze', { id: 'analyze-shoot' });
+          }
+          break;
+        }
+        case 'auto-pick-duplicates': {
+          toast('Auto-picking best duplicates...', { icon: '🏆', id: 'auto-pick-toast' });
+          try {
+            const res = await api.autoPickDuplicates();
+            if (res && res.success) {
+              toast.success(`Auto-pick complete: ${res.accepted} accepted, ${res.rejected} rejected (${res.groups_processed} groups)`, { id: 'auto-pick-toast' });
+              await usePhotosStore.getState().fetchPhotos();
+            } else {
+              toast.error('Auto-pick failed', { id: 'auto-pick-toast' });
+            }
+          } catch {
+            toast.error('Auto-pick failed', { id: 'auto-pick-toast' });
+          }
+          break;
+        }
+        case 'rescan-folder': {
+          const state = usePhotosStore.getState();
+          const targetFolder = state.folders[0]?.path || state.photos[0]?.folder;
+          if (targetFolder) {
+            toast('Rescanning folder...', { icon: '🔄', id: 'rescan-toast' });
+            state.startScan(targetFolder, false).catch(() => toast.error('Failed to rescan folder'));
+          } else {
+            toast('No folder loaded to rescan', { icon: '📁', id: 'rescan-toast' });
+          }
+          break;
+        }
+        case 'reset-database': {
+          if (window.confirm('Are you sure you want to clear the entire photo database? Your original files on disk will NOT be deleted.')) {
+            try {
+              await api.resetLibrary();
+              toast.success('Library database reset');
+              await usePhotosStore.getState().fetchPhotos();
+              navigate('/');
+            } catch {
+              toast.error('Failed to reset library database');
+            }
+          }
+          break;
+        }
         case 'undo':
           undo();
           break;
@@ -171,6 +261,7 @@ export default function App() {
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('app:open-export', handleOpenExport);
       cleanShortcuts?.();
       cleanNavigate?.();
       cleanMenu?.();
@@ -302,6 +393,21 @@ export default function App() {
           <Columns size={22} />
         </button>
 
+        {/* Global Export Button */}
+        {totalPhotos > 0 && (
+          <button
+            onClick={() => {
+              setExportInitialScope('accepted');
+              setExportSelectedIds([]);
+              setShowExportModal(true);
+            }}
+            title="Export Culled Photos (Cmd+E)"
+            className="p-3 rounded-xl transition-all text-indigo-400 hover:text-white hover:bg-gray-800 cursor-pointer"
+          >
+            <FolderUp size={22} />
+          </button>
+        )}
+
         <div className="flex-1" />
 
         {/* Studio Themes Modal Button */}
@@ -383,6 +489,26 @@ export default function App() {
       <ThemePickerModal
         isOpen={showThemeModal}
         onClose={() => setShowThemeModal(false)}
+      />
+
+      {/* Global Export Modal */}
+      {showExportModal && (
+        <ExportModal
+          onClose={() => setShowExportModal(false)}
+          selectedIds={exportSelectedIds}
+          initialScope={exportInitialScope}
+        />
+      )}
+
+      {/* Target Delivery Manager Modal */}
+      {showDeliveryModal && (
+        <TargetDeliveryModal onClose={() => setShowDeliveryModal(false)} />
+      )}
+
+      {/* VIP Faces Modal */}
+      <VipFacesModal
+        isOpen={showVipModal}
+        onClose={() => setShowVipModal(false)}
       />
     </div>
   );

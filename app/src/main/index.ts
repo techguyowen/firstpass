@@ -248,6 +248,9 @@ function setupApplicationMenu(): void {
     mainWindow?.webContents.send('menu-action', action, payload)
   }
 
+  const isReview = Boolean(currentMenuState.currentRoute && currentMenuState.currentRoute.startsWith('/review'))
+  const isCompare = Boolean(currentMenuState.currentRoute && currentMenuState.currentRoute.startsWith('/compare'))
+
   const template: Electron.MenuItemConstructorOptions[] = [
     ...(isMac
       ? [
@@ -315,6 +318,10 @@ function setupApplicationMenu(): void {
           label: 'Quick Export (Accepted Only)...',
           accelerator: 'CmdOrCtrl+Shift+E',
           click: () => send('quick-export')
+        },
+        {
+          label: 'Export Tagged Photos Only...',
+          click: () => send('export-tagged')
         },
         {
           label: 'Target Delivery Manager...',
@@ -525,182 +532,190 @@ function setupApplicationMenu(): void {
           label: 'Zoom to 100% / 250% (Z)',
           click: () => send('toggle-zoom')
         },
-        { type: 'separator' as const },
-        {
-          label: 'Match Comparison',
-          submenu: [
-            {
-              label: 'Match Zoom',
-              accelerator: 'CmdOrCtrl+Shift+Z',
-              click: () => send('match-zoom')
-            },
-            {
-              label: 'Match Location',
-              click: () => send('match-location')
-            },
-            {
-              label: 'Match Rotation',
-              click: () => send('match-rotation')
-            },
-            { type: 'separator' as const },
-            {
-              label: 'Match All',
-              accelerator: 'CmdOrCtrl+Shift+M',
-              click: () => send('match-all')
-            }
-          ]
-        },
-        { type: 'separator' as const },
-        {
-          label: 'Photographic Info HUD',
-          submenu: [
-            {
-              label: 'HUD Off',
-              type: 'radio' as const,
-              checked: currentMenuState.hudMode === 0,
-              click: () => send('set-hud', 0)
-            },
-            {
-              label: 'Triage Summary HUD',
-              type: 'radio' as const,
-              checked: currentMenuState.hudMode === 1,
-              click: () => send('set-hud', 1)
-            },
-            {
-              label: 'Shooting EXIF Parameters HUD',
-              type: 'radio' as const,
-              checked: currentMenuState.hudMode === 2,
-              click: () => send('set-hud', 2)
-            },
-            { type: 'separator' as const },
-            {
-              label: 'Cycle Info HUD (I)',
-              click: () => send('cycle-hud')
-            },
-            {
-              label: 'Close HUD',
-              click: () => send('close-hud')
-            }
-          ]
-        },
-        {
-          label: 'Highlight & Shadow Clipping Overlay (E)',
-          type: 'checkbox' as const,
-          checked: currentMenuState.showClipping,
-          click: () => send('toggle-clipping')
-        },
-        {
-          label: 'RGB & Luminance Histogram (H)',
-          submenu: [
-            {
-              label: 'Dock to Inspector Sidebar',
-              type: 'radio' as const,
-              checked: currentMenuState.histogramMode === 'sidebar',
-              click: () => send('set-histogram', 'sidebar')
-            },
-            {
-              label: 'Floating Window (Draggable)',
-              type: 'radio' as const,
-              checked: currentMenuState.histogramMode === 'floating',
-              click: () => send('set-histogram', 'floating')
-            },
-            {
-              label: 'Hide Histogram',
-              type: 'radio' as const,
-              checked: currentMenuState.histogramMode === 'hidden',
-              click: () => send('set-histogram', 'hidden')
-            },
-            { type: 'separator' as const },
-            {
-              label: 'Cycle Histogram Placement (H)',
-              click: () => send('toggle-histogram')
-            }
-          ]
-        },
-        {
-          label: 'Face Loupe',
-          submenu: [
-            {
-              label: 'Dock to Bottom Stage Bar',
-              click: () => send('set-faceloupe', 'bottom')
-            },
-            {
-              label: 'Dock to Inspector Sidebar',
-              click: () => send('set-faceloupe', 'sidebar')
-            },
-            {
-              label: 'Floating Window (Draggable)',
-              click: () => send('set-faceloupe', 'floating')
-            },
-            {
-              label: 'Hide Face Loupe',
-              click: () => send('set-faceloupe', 'hidden')
-            }
-          ]
-        },
-        { type: 'separator' as const },
-        {
-          label: 'Lights Out Mode',
-          submenu: [
-            {
-              label: 'Lights On (Normal)',
-              type: 'radio' as const,
-              checked: currentMenuState.lightsOutLevel === 0,
-              click: () => send('set-lights-out', 0)
-            },
-            {
-              label: '85% Dim (Isolate Photo)',
-              type: 'radio' as const,
-              checked: currentMenuState.lightsOutLevel === 1,
-              click: () => send('set-lights-out', 1)
-            },
-            {
-              label: 'Full Blackout',
-              type: 'radio' as const,
-              checked: currentMenuState.lightsOutLevel === 2,
-              click: () => send('set-lights-out', 2)
-            },
-            { type: 'separator' as const },
-            {
-              label: 'Cycle Lights Out (L)',
-              click: () => send('cycle-lights-out')
-            }
-          ]
-        },
-        {
-          label: 'Canvas Backdrop',
-          submenu: [
-            {
-              label: 'Pitch Black (#000000)',
-              type: 'radio' as const,
-              checked: currentMenuState.canvasBackdrop === 'black',
-              click: () => send('set-backdrop', 'black')
-            },
-            {
-              label: 'Dark Gray (#141414)',
-              type: 'radio' as const,
-              checked: currentMenuState.canvasBackdrop === 'dark',
-              click: () => send('set-backdrop', 'dark')
-            },
-            {
-              label: '18% Studio Neutral Gray (Calibrated)',
-              type: 'radio' as const,
-              checked: currentMenuState.canvasBackdrop === 'neutral',
-              click: () => send('set-backdrop', 'neutral')
-            },
-            {
-              label: 'Match Studio Theme',
-              type: 'radio' as const,
-              checked: currentMenuState.canvasBackdrop === 'theme',
-              click: () => send('set-backdrop', 'theme')
-            }
-          ]
-        },
-        { type: 'separator' as const },
-        {
-          label: 'Toggle Fullscreen Review (F)',
-          click: () => send('toggle-fullscreen')
-        },
+        ...(isCompare
+          ? [
+              { type: 'separator' as const },
+              {
+                label: 'Match Comparison',
+                submenu: [
+                  {
+                    label: 'Match Zoom',
+                    accelerator: 'CmdOrCtrl+Shift+Z',
+                    click: () => send('match-zoom')
+                  },
+                  {
+                    label: 'Match Location',
+                    click: () => send('match-location')
+                  },
+                  {
+                    label: 'Match Rotation',
+                    click: () => send('match-rotation')
+                  },
+                  { type: 'separator' as const },
+                  {
+                    label: 'Match All',
+                    accelerator: 'CmdOrCtrl+Shift+M',
+                    click: () => send('match-all')
+                  }
+                ]
+              }
+            ]
+          : []),
+        ...(isReview
+          ? [
+              { type: 'separator' as const },
+              {
+                label: 'Photographic Info HUD',
+                submenu: [
+                  {
+                    label: 'HUD Off',
+                    type: 'radio' as const,
+                    checked: currentMenuState.hudMode === 0,
+                    click: () => send('set-hud', 0)
+                  },
+                  {
+                    label: 'Triage Summary HUD',
+                    type: 'radio' as const,
+                    checked: currentMenuState.hudMode === 1,
+                    click: () => send('set-hud', 1)
+                  },
+                  {
+                    label: 'Shooting EXIF Parameters HUD',
+                    type: 'radio' as const,
+                    checked: currentMenuState.hudMode === 2,
+                    click: () => send('set-hud', 2)
+                  },
+                  { type: 'separator' as const },
+                  {
+                    label: 'Cycle Info HUD (I)',
+                    click: () => send('cycle-hud')
+                  },
+                  {
+                    label: 'Close HUD',
+                    click: () => send('close-hud')
+                  }
+                ]
+              },
+              {
+                label: 'Highlight & Shadow Clipping Overlay (E)',
+                type: 'checkbox' as const,
+                checked: currentMenuState.showClipping,
+                click: () => send('toggle-clipping')
+              },
+              {
+                label: 'RGB & Luminance Histogram (H)',
+                submenu: [
+                  {
+                    label: 'Dock to Inspector Sidebar',
+                    type: 'radio' as const,
+                    checked: currentMenuState.histogramMode === 'sidebar',
+                    click: () => send('set-histogram', 'sidebar')
+                  },
+                  {
+                    label: 'Floating Window (Draggable)',
+                    type: 'radio' as const,
+                    checked: currentMenuState.histogramMode === 'floating',
+                    click: () => send('set-histogram', 'floating')
+                  },
+                  {
+                    label: 'Hide Histogram',
+                    type: 'radio' as const,
+                    checked: currentMenuState.histogramMode === 'hidden',
+                    click: () => send('set-histogram', 'hidden')
+                  },
+                  { type: 'separator' as const },
+                  {
+                    label: 'Cycle Histogram Placement (H)',
+                    click: () => send('toggle-histogram')
+                  }
+                ]
+              },
+              {
+                label: 'Face Loupe',
+                submenu: [
+                  {
+                    label: 'Dock to Bottom Stage Bar',
+                    click: () => send('set-faceloupe', 'bottom')
+                  },
+                  {
+                    label: 'Dock to Inspector Sidebar',
+                    click: () => send('set-faceloupe', 'sidebar')
+                  },
+                  {
+                    label: 'Floating Window (Draggable)',
+                    click: () => send('set-faceloupe', 'floating')
+                  },
+                  {
+                    label: 'Hide Face Loupe',
+                    click: () => send('set-faceloupe', 'hidden')
+                  }
+                ]
+              },
+              { type: 'separator' as const },
+              {
+                label: 'Lights Out Mode',
+                submenu: [
+                  {
+                    label: 'Lights On (Normal)',
+                    type: 'radio' as const,
+                    checked: currentMenuState.lightsOutLevel === 0,
+                    click: () => send('set-lights-out', 0)
+                  },
+                  {
+                    label: '85% Dim (Isolate Photo)',
+                    type: 'radio' as const,
+                    checked: currentMenuState.lightsOutLevel === 1,
+                    click: () => send('set-lights-out', 1)
+                  },
+                  {
+                    label: 'Full Blackout',
+                    type: 'radio' as const,
+                    checked: currentMenuState.lightsOutLevel === 2,
+                    click: () => send('set-lights-out', 2)
+                  },
+                  { type: 'separator' as const },
+                  {
+                    label: 'Cycle Lights Out (L)',
+                    click: () => send('cycle-lights-out')
+                  }
+                ]
+              },
+              {
+                label: 'Canvas Backdrop',
+                submenu: [
+                  {
+                    label: 'Pitch Black (#000000)',
+                    type: 'radio' as const,
+                    checked: currentMenuState.canvasBackdrop === 'black',
+                    click: () => send('set-backdrop', 'black')
+                  },
+                  {
+                    label: 'Dark Gray (#141414)',
+                    type: 'radio' as const,
+                    checked: currentMenuState.canvasBackdrop === 'dark',
+                    click: () => send('set-backdrop', 'dark')
+                  },
+                  {
+                    label: '18% Studio Neutral Gray (Calibrated)',
+                    type: 'radio' as const,
+                    checked: currentMenuState.canvasBackdrop === 'neutral',
+                    click: () => send('set-backdrop', 'neutral')
+                  },
+                  {
+                    label: 'Match Studio Theme',
+                    type: 'radio' as const,
+                    checked: currentMenuState.canvasBackdrop === 'theme',
+                    click: () => send('set-backdrop', 'theme')
+                  }
+                ]
+              },
+              { type: 'separator' as const },
+              {
+                label: 'Toggle Fullscreen Review (F)',
+                click: () => send('toggle-fullscreen')
+              }
+            ]
+          : []),
         { role: 'togglefullscreen' as const }
       ]
     },
@@ -710,44 +725,6 @@ function setupApplicationMenu(): void {
         { role: 'minimize' as const },
         { role: 'zoom' as const },
         { type: 'separator' as const },
-        {
-          label: 'Workspaces',
-          submenu: [
-            {
-              label: 'Default Studio',
-              type: 'radio' as const,
-              checked: currentMenuState.activeWorkspace === 'default-studio',
-              click: () => send('set-workspace', 'default-studio')
-            },
-            {
-              label: 'Speed Triage (Full Viewport)',
-              type: 'radio' as const,
-              checked: currentMenuState.activeWorkspace === 'speed-triage',
-              click: () => send('set-workspace', 'speed-triage')
-            },
-            {
-              label: 'Focus & Faces',
-              type: 'radio' as const,
-              checked: currentMenuState.activeWorkspace === 'focus-inspection',
-              click: () => send('set-workspace', 'focus-inspection')
-            },
-            {
-              label: 'Technical & EXIF Studio',
-              type: 'radio' as const,
-              checked: currentMenuState.activeWorkspace === 'technical-exif',
-              click: () => send('set-workspace', 'technical-exif')
-            },
-            { type: 'separator' as const },
-            {
-              label: 'Save Current Layout As...',
-              click: () => send('save-workspace-dialog')
-            },
-            {
-              label: 'Reset Current Workspace Layout',
-              click: () => send('reset-workspace')
-            }
-          ]
-        },
         // Studio Themes are strictly separated from Workspaces: themes govern
         // colors only, workspaces govern item locations/geometry/layout only.
         {
@@ -790,10 +767,51 @@ function setupApplicationMenu(): void {
             }
           ]
         },
-        { type: 'separator' as const },
-        {
-          label: 'Panels & Windows',
-          submenu: [
+        ...(isReview
+          ? [
+              { type: 'separator' as const },
+              {
+                label: 'Workspaces',
+                submenu: [
+                  {
+                    label: 'Default Studio',
+                    type: 'radio' as const,
+                    checked: currentMenuState.activeWorkspace === 'default-studio',
+                    click: () => send('set-workspace', 'default-studio')
+                  },
+                  {
+                    label: 'Speed Triage (Full Viewport)',
+                    type: 'radio' as const,
+                    checked: currentMenuState.activeWorkspace === 'speed-triage',
+                    click: () => send('set-workspace', 'speed-triage')
+                  },
+                  {
+                    label: 'Focus & Faces',
+                    type: 'radio' as const,
+                    checked: currentMenuState.activeWorkspace === 'focus-inspection',
+                    click: () => send('set-workspace', 'focus-inspection')
+                  },
+                  {
+                    label: 'Technical & EXIF Studio',
+                    type: 'radio' as const,
+                    checked: currentMenuState.activeWorkspace === 'technical-exif',
+                    click: () => send('set-workspace', 'technical-exif')
+                  },
+                  { type: 'separator' as const },
+                  {
+                    label: 'Save Current Layout As...',
+                    click: () => send('save-workspace-dialog')
+                  },
+                  {
+                    label: 'Reset Current Workspace Layout',
+                    click: () => send('reset-workspace')
+                  }
+                ]
+              },
+              { type: 'separator' as const },
+              {
+                label: 'Panels & Windows',
+                submenu: [
             {
               label: 'Filmstrip',
               type: 'checkbox' as const,
@@ -966,7 +984,9 @@ function setupApplicationMenu(): void {
               ]
             }
           ]
-        },
+        }
+      ]
+    : []),
         ...(isMac
           ? [
               { type: 'separator' as const },
@@ -995,7 +1015,15 @@ function setupApplicationMenu(): void {
           click: () => {
             shell.openExternal('https://github.com')
           }
-        }
+        },
+        ...(!app.isPackaged
+          ? [
+              { type: 'separator' as const },
+              { role: 'reload' as const },
+              { role: 'forceReload' as const },
+              { role: 'toggleDevTools' as const }
+            ]
+          : [])
       ]
     }
   ]

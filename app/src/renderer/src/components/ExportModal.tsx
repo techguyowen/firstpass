@@ -8,13 +8,39 @@ import type { JobStatus, Photo } from '../types/photo'
 interface ExportModalProps {
   onClose: () => void
   selectedIds?: number[]
+  initialScope?: 'accepted' | 'tagged' | 'tagged_selected' | 'rejected' | 'selected'
 }
 
-export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds = [] }) => {
+export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds = [], initialScope }) => {
   const { photos, loadPhotos } = usePhotosStore()
-  const [scope, setScope] = useState<'accepted' | 'rejected' | 'selected'>('accepted')
+
+  const acceptedPhotos = photos.filter((p) => p.status === 'accepted')
+  const rejectedPhotos = photos.filter((p) => p.status === 'rejected')
+  const taggedPhotos = photos.filter((p) => Boolean(p.is_tagged))
+  const selectedPhotos = photos.filter((p) => selectedIds.includes(p.id))
+  const taggedSelectedPhotos = selectedPhotos.filter((p) => Boolean(p.is_tagged))
+
+  const [scope, setScope] = useState<'accepted' | 'tagged' | 'tagged_selected' | 'rejected' | 'selected'>(() => {
+    if (initialScope) return initialScope
+    if (selectedIds.length > 0) {
+      return taggedSelectedPhotos.length > 0 ? 'tagged_selected' : 'selected'
+    }
+    if (taggedPhotos.length > 0 && acceptedPhotos.length === 0) return 'tagged'
+    return 'accepted'
+  })
+
   const [action, setAction] = useState<'copy' | 'move' | 'trash' | 'xmp'>('copy')
-  const [destFolder, setDestFolder] = useState<string>('')
+  const [destFolder, setDestFolder] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('firstpass_last_export_folder')
+      if (saved) return saved
+    } catch {}
+    const sample = photos.find((p) => p.folder)
+    if (sample?.folder) {
+      return `${sample.folder}/Exported_Keepers`
+    }
+    return ''
+  })
   const [exporting, setExporting] = useState(false)
   const [exportProgress, setExportProgress] = useState<JobStatus | null>(null)
   const [isAutoPickingDuplicates, setIsAutoPickingDuplicates] = useState(false)
@@ -34,13 +60,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
     }
   }
 
-  const acceptedPhotos = photos.filter((p) => p.status === 'accepted')
-  const rejectedPhotos = photos.filter((p) => p.status === 'rejected')
-
   let targetPhotos: Photo[] = []
   if (scope === 'accepted') targetPhotos = acceptedPhotos
+  else if (scope === 'tagged') targetPhotos = taggedPhotos
+  else if (scope === 'tagged_selected') targetPhotos = taggedSelectedPhotos
   else if (scope === 'rejected') targetPhotos = rejectedPhotos
-  else targetPhotos = photos.filter((p) => selectedIds.includes(p.id))
+  else targetPhotos = selectedPhotos
 
   const handleSelectFolder = async () => {
     try {
@@ -75,6 +100,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
       )
 
       if (res.success) {
+        if (destFolder) {
+          try { localStorage.setItem('firstpass_last_export_folder', destFolder) } catch {}
+        }
         toast.success(res.message || `Successfully processed ${res.count} photo(s)!`)
         await loadPhotos()
         onClose()
@@ -149,19 +177,54 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
             <label className="text-xs font-semibold uppercase tracking-wider text-gray-400 block mb-2">
               Photos to Export
             </label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <button
                 type="button"
                 onClick={() => setScope('accepted')}
                 disabled={exporting}
-                className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all disabled:opacity-40 ${
+                className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all disabled:opacity-40 flex flex-col items-center justify-center gap-0.5 ${
                   scope === 'accepted'
-                    ? 'bg-emerald-600/20 border-emerald-500 text-emerald-300'
+                    ? 'bg-emerald-600/20 border-emerald-500 text-emerald-300 shadow-md'
                     : 'bg-gray-950 border-gray-800 text-gray-400 hover:border-gray-700'
                 }`}
               >
-                Keepers ({acceptedPhotos.length})
+                <span>Keepers</span>
+                <span className="text-[11px] opacity-80">({acceptedPhotos.length})</span>
               </button>
+
+              <button
+                type="button"
+                onClick={() => setScope('tagged')}
+                disabled={exporting}
+                className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all disabled:opacity-40 flex flex-col items-center justify-center gap-0.5 ${
+                  scope === 'tagged'
+                    ? 'bg-amber-500/25 border-amber-500 text-amber-300 shadow-md ring-1 ring-amber-500/40'
+                    : 'bg-gray-950 border-gray-800 text-gray-400 hover:border-gray-700'
+                }`}
+              >
+                <span className="flex items-center gap-1"><span>🏷️</span> Tagged</span>
+                <span className="text-[11px] opacity-80">({taggedPhotos.length})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setScope(taggedSelectedPhotos.length > 0 ? 'tagged_selected' : 'selected')}
+                disabled={selectedIds.length === 0 || exporting}
+                className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all disabled:opacity-40 flex flex-col items-center justify-center gap-0.5 relative ${
+                  scope === 'selected' || scope === 'tagged_selected'
+                    ? 'bg-indigo-600/20 border-indigo-500 text-indigo-300 shadow-md'
+                    : 'bg-gray-950 border-gray-800 text-gray-400 hover:border-gray-700'
+                }`}
+              >
+                <span>Selected</span>
+                <span className="text-[11px] opacity-80">({selectedIds.length})</span>
+                {taggedSelectedPhotos.length > 0 && (
+                  <span className="absolute -top-1.5 -right-1 px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-amber-500 text-neutral-950 shadow">
+                    {taggedSelectedPhotos.length} 🏷️
+                  </span>
+                )}
+              </button>
+
               <button
                 type="button"
                 disabled={exporting}
@@ -169,26 +232,69 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
                   setScope('rejected')
                   if (action === 'copy') setAction('trash')
                 }}
-                className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all ${
+                className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all flex flex-col items-center justify-center gap-0.5 ${
                   scope === 'rejected'
-                    ? 'bg-rose-600/20 border-rose-500 text-rose-300'
+                    ? 'bg-rose-600/20 border-rose-500 text-rose-300 shadow-md'
                     : 'bg-gray-950 border-gray-800 text-gray-400 hover:border-gray-700'
                 }`}
               >
-                Rejected ({rejectedPhotos.length})
+                <span>Rejected</span>
+                <span className="text-[11px] opacity-80">({rejectedPhotos.length})</span>
               </button>
-              <button
-                type="button"
-                onClick={() => setScope('selected')}
-                disabled={selectedIds.length === 0 || exporting}
-                className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all disabled:opacity-40 ${
-                  scope === 'selected'
-                    ? 'bg-indigo-600/20 border-indigo-500 text-indigo-300'
-                    : 'bg-gray-950 border-gray-800 text-gray-400 hover:border-gray-700'
-                }`}
-              >
-                Selected ({selectedIds.length})
-              </button>
+            </div>
+
+            {/* When selection has tagged items, show a quick toggle for Tagged Selected vs All Selected */}
+            {(scope === 'selected' || scope === 'tagged_selected') && taggedSelectedPhotos.length > 0 && (
+              <div className="flex items-center gap-2 mt-2 pt-2 border-t border-neutral-800/60 text-xs">
+                <span className="text-[11px] text-neutral-400">Within selection:</span>
+                <button
+                  type="button"
+                  onClick={() => setScope('selected')}
+                  className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                    scope === 'selected'
+                      ? 'bg-indigo-600 text-white font-semibold'
+                      : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
+                  }`}
+                >
+                  All Selected ({selectedPhotos.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScope('tagged_selected')}
+                  className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                    scope === 'tagged_selected'
+                      ? 'bg-amber-500 text-neutral-950 font-bold shadow'
+                      : 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 border border-amber-500/30'
+                  }`}
+                >
+                  <span>🏷️</span> Tagged Only ({taggedSelectedPhotos.length})
+                </button>
+              </div>
+            )}
+
+            {/* Queue breakdown badge bar */}
+            <div className="mt-2.5 px-3 py-1.5 rounded-lg bg-neutral-950/80 border border-neutral-800/80 flex items-center justify-between text-[11px]">
+              <div className="flex items-center gap-1.5">
+                <span className="text-neutral-400">Queue:</span>
+                <span className="text-white font-bold">{targetPhotos.length} photo{targetPhotos.length === 1 ? '' : 's'}</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {targetPhotos.filter(p => p.status === 'accepted').length > 0 && (
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                    ✓ {targetPhotos.filter(p => p.status === 'accepted').length}
+                  </span>
+                )}
+                {targetPhotos.filter(p => Boolean(p.is_tagged)).length > 0 && (
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-0.5">
+                    <span>🏷️</span> {targetPhotos.filter(p => Boolean(p.is_tagged)).length} Tagged
+                  </span>
+                )}
+                {targetPhotos.filter(p => p.status === 'rejected').length > 0 && (
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-rose-500/15 text-rose-300 border border-rose-500/30">
+                    ✕ {targetPhotos.filter(p => p.status === 'rejected').length}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
@@ -365,6 +471,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
               ? 'Processing...'
               : action === 'trash'
               ? `Move ${targetPhotos.length} to Trash`
+              : action === 'xmp'
+              ? `Write ${targetPhotos.length} XMP Sidecar${targetPhotos.length === 1 ? '' : 's'}`
+              : scope === 'tagged' || scope === 'tagged_selected'
+              ? `Export ${targetPhotos.length} Tagged Photo${targetPhotos.length === 1 ? '' : 's'}`
               : `Export ${targetPhotos.length} Photo${targetPhotos.length === 1 ? '' : 's'}`}
           </button>
         </div>

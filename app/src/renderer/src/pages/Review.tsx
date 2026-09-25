@@ -5,7 +5,7 @@ import {
   Zap, Eye, Columns, Sliders, PanelLeft, PanelRight, PanelBottom,
   Palette, Moon, Info, ChevronDown, SlidersHorizontal, RotateCcw, Sparkles,
   ChevronsRight, ChevronsLeft, Anchor, GripVertical, Minus, Square, MoreHorizontal,
-  ExternalLink, Pin, Crown, Split, Film, ArrowLeftRight, LayoutGrid
+  ExternalLink, Pin, Crown, Split, Film, ArrowLeftRight, LayoutGrid, FolderUp
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api, getApiToken, initApiToken } from '../api/client'
@@ -1536,6 +1536,27 @@ export default function Review() {
             setIsHoldingZoom(false)
           }
           break
+        case 'open-export':
+        case 'quick-export':
+          window.dispatchEvent(
+            new CustomEvent('app:open-export', {
+              detail: {
+                selectedIds: photo ? [photo.id] : [],
+                initialScope: 'accepted'
+              }
+            })
+          )
+          break
+        case 'export-tagged':
+          window.dispatchEvent(
+            new CustomEvent('app:open-export', {
+              detail: {
+                selectedIds: photo ? [photo.id] : [],
+                initialScope: 'tagged'
+              }
+            })
+          )
+          break
       }
     }
 
@@ -1815,6 +1836,25 @@ export default function Review() {
             <Sliders size={12} className={scorePanelDock !== 'collapsed' ? 'text-blue-400' : 'text-neutral-500'} />
             <span className="hidden 2xl:inline text-xs">Inspector</span>
             {scorePanelDock !== 'collapsed' ? <ChevronsRight size={11} className="text-blue-300" /> : <ChevronsLeft size={11} className="text-neutral-400" />}
+          </button>
+
+          {/* Export (Cmd+E) */}
+          <button
+            onClick={() => {
+              window.dispatchEvent(
+                new CustomEvent('app:open-export', {
+                  detail: {
+                    selectedIds: photo ? [photo.id] : [],
+                    initialScope: photo?.is_tagged ? 'tagged' : photo?.status === 'accepted' ? 'accepted' : 'accepted'
+                  }
+                })
+              )
+            }}
+            className="flex items-center gap-1 px-2 py-1 text-xs rounded-lg border border-neutral-700/80 bg-neutral-800/90 hover:bg-neutral-700 text-neutral-200 hover:text-white transition-colors cursor-pointer shrink-0"
+            title="Export Culled Photos (Cmd+E)"
+          >
+            <FolderUp size={12} className="text-indigo-400" />
+            <span className="hidden xl:inline text-xs font-medium">Export</span>
           </button>
 
           {/* Fullscreen (F) */}
