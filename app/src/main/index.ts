@@ -6,7 +6,19 @@ import crypto from 'crypto'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { spawn, ChildProcess } from 'child_process'
 
+app.name = 'FirstPass'
 app.setName('FirstPass')
+if (process.platform === 'darwin') {
+  process.title = 'FirstPass'
+}
+app.setAboutPanelOptions({
+  applicationName: 'FirstPass',
+  applicationVersion: '1.0.1',
+  version: '1.0.1',
+  copyright: 'Copyright © 2026 FirstPass',
+  credits: 'FirstPass — AI Auto Photo Culling Studio',
+  website: 'https://firstpass.app'
+})
 
 let backendProcess: ChildProcess | null = null
 let mainWindow: BrowserWindow | null = null
@@ -240,9 +252,12 @@ function setupApplicationMenu(): void {
     ...(isMac
       ? [
           {
-            label: app.name,
+            label: 'FirstPass',
             submenu: [
-              { role: 'about' as const },
+              {
+                label: 'About FirstPass',
+                role: 'about' as const
+              },
               {
                 label: 'Check for Updates...',
                 click: () => send('check-updates')
@@ -256,11 +271,23 @@ function setupApplicationMenu(): void {
               { type: 'separator' as const },
               { role: 'services' as const },
               { type: 'separator' as const },
-              { role: 'hide' as const },
-              { role: 'hideOthers' as const },
-              { role: 'unhide' as const },
+              {
+                label: 'Hide FirstPass',
+                role: 'hide' as const
+              },
+              {
+                label: 'Hide Others',
+                role: 'hideOthers' as const
+              },
+              {
+                label: 'Show All',
+                role: 'unhide' as const
+              },
               { type: 'separator' as const },
-              { role: 'quit' as const }
+              {
+                label: 'Quit FirstPass',
+                role: 'quit' as const
+              }
             ]
           }
         ]
