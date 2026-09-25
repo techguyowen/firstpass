@@ -18,6 +18,7 @@ export interface CullingActionBarProps {
   status?: 'accepted' | 'rejected' | 'pending'
   isTagged?: boolean
   onStatus: (status: 'accepted' | 'rejected' | 'pending') => void
+  onSkip?: () => void
   onToggleTag?: () => void
   placement?: TriagePlacement
   onSetPlacement?: (placement: TriagePlacement) => void
@@ -31,6 +32,7 @@ export default function CullingActionBar({
   status,
   isTagged = false,
   onStatus,
+  onSkip,
   onToggleTag,
   placement: controlledPlacement,
   onSetPlacement,
@@ -503,7 +505,10 @@ export default function CullingActionBar({
         {/* REJECT BUTTON (R / 2) */}
         <button
           type="button"
-          onClick={() => onStatus('rejected')}
+          onClick={(e) => {
+            e.currentTarget.blur()
+            onStatus('rejected')
+          }}
           className={clsx(
             'rounded-xl transition-all cursor-pointer font-medium select-none',
             actionBtnClass,
@@ -522,7 +527,14 @@ export default function CullingActionBar({
         {/* SKIP BUTTON (Space) */}
         <button
           type="button"
-          onClick={() => onStatus('pending')}
+          onClick={(e) => {
+            e.currentTarget.blur()
+            if (onSkip) {
+              onSkip()
+            } else {
+              onStatus('pending')
+            }
+          }}
           className={clsx(
             'rounded-xl transition-all cursor-pointer font-medium select-none',
             actionBtnClass,
@@ -541,7 +553,10 @@ export default function CullingActionBar({
         {/* ACCEPT BUTTON (A / ~ / Enter) */}
         <button
           type="button"
-          onClick={() => onStatus('accepted')}
+          onClick={(e) => {
+            e.currentTarget.blur()
+            onStatus('accepted')
+          }}
           className={clsx(
             'rounded-xl transition-all cursor-pointer font-medium select-none',
             actionBtnClass,

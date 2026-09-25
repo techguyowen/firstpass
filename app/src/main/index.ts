@@ -405,6 +405,10 @@ function setupApplicationMenu(): void {
           click: () => send('rate-pending')
         },
         {
+          label: 'Skip to Next Photo (Space)',
+          click: () => send('rate-skip')
+        },
+        {
           label: 'Toggle Tag (\\ / T)',
           accelerator: 'CmdOrCtrl+T',
           click: () => send('toggle-tag')

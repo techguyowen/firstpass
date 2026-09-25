@@ -64,6 +64,7 @@ export interface ScorePanelProps {
   onSetTriagePlacement?: (placement: TriagePlacement) => void
   cullingBarVisible?: boolean
   onStatus?: (status: 'accepted' | 'rejected' | 'pending') => void
+  onSkip?: () => void
   onToggleTag?: () => void
 }
 
@@ -253,6 +254,7 @@ export default function ScorePanel({
   onSetTriagePlacement,
   cullingBarVisible = true,
   onStatus,
+  onSkip,
   onToggleTag,
 }: ScorePanelProps) {
   const { startAnalysis, isAnalyzing, setPhotoStatusWithUndo, togglePhotoTag } = usePhotosStore()
@@ -1042,6 +1044,7 @@ export default function ScorePanel({
           status={photo.status}
           isTagged={Boolean(photo.is_tagged)}
           onStatus={onStatus || ((st) => setPhotoStatusWithUndo(photo.id, st))}
+          onSkip={onSkip}
           onToggleTag={onToggleTag || (() => togglePhotoTag(photo.id))}
           placement="sidebar"
           onSetPlacement={onSetTriagePlacement}
@@ -1277,6 +1280,7 @@ export default function ScorePanel({
             status={photo.status}
             isTagged={Boolean(photo.is_tagged)}
             onStatus={onStatus || ((st) => setPhotoStatusWithUndo(photo.id, st))}
+            onSkip={onSkip}
             onToggleTag={onToggleTag || (() => togglePhotoTag(photo.id))}
             placement="sidebar"
             onSetPlacement={onSetTriagePlacement}

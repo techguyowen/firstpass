@@ -1112,7 +1112,7 @@ export default function Review() {
   }, [photo, prevPhoto, nextPhoto, navigate])
 
   useEffect(() => {
-    const cached = photos.find(p => p.id === photoId)
+    const cached = usePhotosStore.getState().photos.find(p => p.id === photoId)
     if (cached) {
       setPhoto(cached)
       setLoading(false)
@@ -1134,7 +1134,15 @@ export default function Review() {
     api.getPhoto(photoId)
       .then(p => {
         if (cancelled) return
-        setPhoto(p)
+        setPhoto(prev => {
+          if (!prev || prev.id !== p.id) return p
+          const storePhoto = usePhotosStore.getState().photos.find(item => item.id === p.id)
+          return {
+            ...p,
+            status: storePhoto?.status ?? prev.status ?? p.status,
+            is_tagged: storePhoto?.is_tagged ?? prev.is_tagged ?? p.is_tagged,
+          }
+        })
         if (p.duplicate_group_id) {
           api.getDuplicateGroups().then((groups: DuplicateGroup[]) => {
             if (cancelled) return
@@ -1155,7 +1163,7 @@ export default function Review() {
     return () => {
       cancelled = true
     }
-  }, [photoId, photos])
+  }, [photoId])
 
   // Background GPU pre-decoding of adjacent images for instant culling
   useEffect(() => {
@@ -1230,14 +1238,30 @@ export default function Review() {
     isMouseDownRef.current = false
   }
 
-  const handleStatus = async (status: 'accepted' | 'rejected' | 'pending') => {
+  const handleStatus = useCallback(async (status: 'accepted' | 'rejected' | 'pending') => {
     if (!photo) return
-    setPhoto(prev => prev ? { ...prev, status } : null)
-    await setPhotoStatusWithUndo(photo.id, status)
+    const currentPhotoId = photo.id
+    setPhoto(prev => (prev && prev.id === currentPhotoId ? { ...prev, status } : prev))
+    const statusPromise = setPhotoStatusWithUndo(currentPhotoId, status)
     if (status !== 'pending' && nextPhoto && autoAdvance) {
       navigate(`/review/${nextPhoto.id}`)
     }
-  }
+    await statusPromise
+  }, [photo, nextPhoto, autoAdvance, setPhotoStatusWithUndo, navigate])
+
+  const handleSkip = useCallback(async () => {
+    if (!photo) return
+    const currentPhotoId = photo.id
+    if (photo.status !== 'pending') {
+      setPhoto(prev => (prev && prev.id === currentPhotoId ? { ...prev, status: 'pending' } : prev))
+      await setPhotoStatusWithUndo(currentPhotoId, 'pending')
+    }
+    if (nextPhoto) {
+      navigate(`/review/${nextPhoto.id}`)
+    } else {
+      toast('At last photo', { icon: '🏁', id: 'last-photo' })
+    }
+  }, [photo, nextPhoto, setPhotoStatusWithUndo, navigate])
 
   // Keyboard shortcuts
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -1259,6 +1283,10 @@ export default function Review() {
 
     if (!photo) return
     switch (e.key) {
+      case ' ':
+        e.preventDefault()
+        handleSkip()
+        break
       case 'CapsLock':
         e.preventDefault()
         toggleAutoAdvance()
@@ -1339,7 +1367,7 @@ export default function Review() {
         setFullscreen(prev => !prev)
         break
     }
-  }, [photo, nextPhoto, prevPhoto, zoomLevel, handleToggleZoom, undo, redo, navigate, autoAdvance, toggleAutoAdvance, filmstripPosition, setFilmstripPosition, togglePhotoTag, handleOpenCompare, toggleScorePanel, lightsOutLevel, cycleLightsOut, cycleHud, cycleHistogram])
+  }, [photo, nextPhoto, prevPhoto, zoomLevel, handleToggleZoom, undo, redo, navigate, autoAdvance, toggleAutoAdvance, filmstripPosition, setFilmstripPosition, togglePhotoTag, handleOpenCompare, toggleScorePanel, lightsOutLevel, cycleLightsOut, cycleHud, cycleHistogram, handleSkip, handleStatus])
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown)
@@ -1490,6 +1518,9 @@ export default function Review() {
         case 'rate-pending':
           handleStatus('pending')
           break
+        case 'rate-skip':
+          handleSkip()
+          break
         case 'toggle-tag':
           if (photo) togglePhotoTag(photo.id)
           break
@@ -1510,7 +1541,7 @@ export default function Review() {
 
     window.addEventListener('app:menu-action', handleAppMenuAction)
     return () => window.removeEventListener('app:menu-action', handleAppMenuAction)
-  }, [cycleLightsOut, cycleHud, setCanvasBackdrop, toggleScorePanel, filmstripPosition, setFilmstripPosition, handleReanalyze, handleStatus, photo, togglePhotoTag, handleToggleZoom, lightsOutLevel, cycleHistogram, setHistogramModeAndStore, workspaces, applyWorkspace, navigate, nextPhoto, prevPhoto, photos, triagePlacement, handleToggleBottomDockSwap, handleResetBottomSplitWidth, togglePanelVisibility])
+  }, [cycleLightsOut, cycleHud, setCanvasBackdrop, toggleScorePanel, filmstripPosition, setFilmstripPosition, handleReanalyze, handleStatus, handleSkip, photo, togglePhotoTag, handleToggleZoom, lightsOutLevel, cycleHistogram, setHistogramModeAndStore, workspaces, applyWorkspace, navigate, nextPhoto, prevPhoto, photos, triagePlacement, handleToggleBottomDockSwap, handleResetBottomSplitWidth, togglePanelVisibility])
 
   // Sync menu state with Review tool settings
   useEffect(() => {
@@ -1928,6 +1959,7 @@ export default function Review() {
             onSetTriagePlacement={setTriagePlacement}
             cullingBarVisible={showCullingBar}
             onStatus={handleStatus}
+            onSkip={handleSkip}
             onToggleTag={() => photo && togglePhotoTag(photo.id)}
           />
           {/* Resize handle on right edge */}
@@ -2126,6 +2158,7 @@ export default function Review() {
                 status={photo.status}
                 isTagged={Boolean(photo.is_tagged)}
                 onStatus={handleStatus}
+                onSkip={handleSkip}
                 onToggleTag={() => photo && togglePhotoTag(photo.id)}
                 placement="bottom"
                 onSetPlacement={setTriagePlacement}
@@ -2481,6 +2514,7 @@ export default function Review() {
                                 status={photo.status}
                                 isTagged={Boolean(photo.is_tagged)}
                                 onStatus={handleStatus}
+                                onSkip={handleSkip}
                                 onToggleTag={() => photo && togglePhotoTag(photo.id)}
                                 placement="sidebar"
                                 scale="standard"
@@ -2590,6 +2624,7 @@ export default function Review() {
             status={photo.status}
             isTagged={Boolean(photo.is_tagged)}
             onStatus={handleStatus}
+            onSkip={handleSkip}
             onToggleTag={() => photo && togglePhotoTag(photo.id)}
             placement={triagePlacement}
             onSetPlacement={setTriagePlacement}
@@ -2796,6 +2831,7 @@ export default function Review() {
             onSetTriagePlacement={setTriagePlacement}
             cullingBarVisible={showCullingBar}
             onStatus={handleStatus}
+            onSkip={handleSkip}
             onToggleTag={() => photo && togglePhotoTag(photo.id)}
           />
         </div>
@@ -3050,6 +3086,7 @@ export default function Review() {
                 triagePlacement={triagePlacement}
                 onSetTriagePlacement={setTriagePlacement}
                 onStatus={handleStatus}
+                onSkip={handleSkip}
                 onToggleTag={() => photo && togglePhotoTag(photo.id)}
               />
             </div>
