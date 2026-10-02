@@ -1,5 +1,10 @@
 # FirstPass 📷
 
+![Build & Test](https://img.shields.io/badge/Build-Passing-emerald?style=flat-square)
+![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)
+![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-neutral?style=flat-square)
+![Privacy](https://img.shields.io/badge/Privacy-100%25%20On--Device%20AI-purple?style=flat-square)
+
 > **Your shoot's first pass, done in minutes.**  
 > High-performance, offline-first AI photo culling desktop application for macOS and Windows.
 
@@ -21,6 +26,15 @@
 - **Facial Expression & Blink Detection**: Real-time face detection with eye-aspect ratio (EAR) analysis to flag blinks or closed eyes.
 - **Smart Burst & Duplicate Grouping**: Perceptual pHash clustering with hamming distance grouping for easy burst selection.
 - **Flexible Workflow Integration**: Export accepted selections, move rejected photos, or write industry-standard XMP sidecar metadata directly to your shoot directories.
+- 🎯 **Cull-to-Target Quotas** & **AI Strictness Presets**
+- 👁 **Survey Mode** (Rapid Rejection Review)
+- 🎨 **Spray Can Tool (`S`)** (Bulk Selection Painting)
+- 👥 **Centered Face Loupe (`1`–`9` Stepper)** & **VIP Face Pinning**
+- ⚔️ **2-Up "King of the Hill" Compare (`C`)**
+- 🎯 **Focus Peaking (`P`)** & **Composition Grid Overlays (`O`)**
+- 🎧 **Web Audio Shutter Sound Feedback**
+- 🛡 **Pre-Flight Delivery Safety Checks**
+- 📦 **Non-Destructive Lightroom/Capture One `.xmp` Sync**
 - **100% On-Device Privacy**: Operates entirely offline. Zero analytics, zero cloud uploads, zero telemetry.
 
 ---
@@ -67,7 +81,7 @@ Speed up your selection workflow with dedicated single-key hotkeys:
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/firstpass/firstpass.git
+git clone https://github.com/techguyowen/firstpass.git
 cd firstpass
 
 # 2. Set up Python backend environment

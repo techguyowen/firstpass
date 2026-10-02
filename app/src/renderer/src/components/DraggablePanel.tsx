@@ -33,11 +33,7 @@ type ResizeDirection = 'e' | 'w' | 's' | 'n' | 'se' | 'sw' | 'ne' | 'nw'
 
 function getPanelStorage(key: string): string | null {
   try {
-    const val = localStorage.getItem(key)
-    if (val !== null) return val
-    if (key.startsWith('firstpass_')) {
-      return localStorage.getItem(key.replace('firstpass_', 'photo_culler_'))
-    }
+    return localStorage.getItem(key) || localStorage.getItem(key.replace('firstpass_', 'photo_culler_'))
   } catch {}
   return null
 }
@@ -45,18 +41,12 @@ function getPanelStorage(key: string): string | null {
 function setPanelStorage(key: string, value: string): void {
   try {
     localStorage.setItem(key, value)
-    if (key.startsWith('firstpass_')) {
-      localStorage.setItem(key.replace('firstpass_', 'photo_culler_'), value)
-    }
   } catch {}
 }
 
 function removePanelStorage(key: string): void {
   try {
     localStorage.removeItem(key)
-    if (key.startsWith('firstpass_')) {
-      localStorage.removeItem(key.replace('firstpass_', 'photo_culler_'))
-    }
   } catch {}
 }
 

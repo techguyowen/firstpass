@@ -5,7 +5,7 @@ import os
 import io
 import json
 from datetime import datetime
-from PIL import Image, ExifTags
+from PIL import Image, ExifTags, ImageOps
 from sqlalchemy.orm import Session
 
 RAW_EXTS = {'.cr2', '.cr3', '.nef', '.arw', '.orf', '.raf', '.dng', '.rw2'}
@@ -117,11 +117,19 @@ def load_image(path: str) -> tuple[np.ndarray, dict]:
     
     if ext in raw_exts and rawpy is not None:
         with rawpy.imread(path) as raw:
-            rgb = raw.postprocess(half_size=True) # half_size for speed
+            rgb = raw.postprocess(half_size=True, use_camera_wb=True) # half_size for speed
             image_bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
     else:
-        # Standard images or raw fallback
-        image_bgr = cv2.imread(path)
+        # Standard images or raw fallback with EXIF orientation transpose
+        try:
+            with Image.open(path) as pil_img:
+                pil_img = ImageOps.exif_transpose(pil_img)
+                if pil_img.mode != 'RGB':
+                    pil_img = pil_img.convert('RGB')
+                rgb_arr = np.array(pil_img)
+                image_bgr = cv2.cvtColor(rgb_arr, cv2.COLOR_RGB2BGR)
+        except Exception:
+            image_bgr = cv2.imread(path)
         
     return image_bgr, meta
 
@@ -160,6 +168,7 @@ def fast_generate_thumbnail_from_path(photo_path: str, photo_id: int, size: int,
                     thumb = raw.extract_thumb()
                     if thumb.format == rawpy.ThumbFormat.JPEG:
                         with Image.open(io.BytesIO(thumb.data)) as t_img:
+                            t_img = ImageOps.exif_transpose(t_img)
                             t_img.thumbnail((size, size), Image.Resampling.BILINEAR)
                             if t_img.mode != "RGB":
                                 t_img = t_img.convert("RGB")
@@ -173,6 +182,7 @@ def fast_generate_thumbnail_from_path(photo_path: str, photo_id: int, size: int,
     # 2. Fast JPEG / Raster draft mode
     try:
         with Image.open(photo_path) as img:
+            img = ImageOps.exif_transpose(img)
             img.draft("RGB", (size, size))
             img.thumbnail((size, size), Image.Resampling.BILINEAR)
             if img.mode != "RGB":
@@ -340,6 +350,15 @@ def analyze_photo_sync(photo_id: int, image_path: str, thumbnails_dir: str, sett
         # 1. Analyze faces first (with subject hierarchy & candid peaks)
         face_res = analyze_faces(image_bgr)
         detected_faces = face_res.get("detected_faces", [])
+
+        # Stamp the detection coordinate space onto every face so zoom targets
+        # can normalize boxes exactly (even for RAW half-size demosaic).
+        _det_w = face_res.get("det_width") or image_bgr.shape[1]
+        _det_h = face_res.get("det_height") or image_bgr.shape[0]
+        for _f in detected_faces:
+            if isinstance(_f, dict):
+                _f.setdefault("det_width", _det_w)
+                _f.setdefault("det_height", _det_h)
         
         # 2. Analyze details & flat-lays (rings, food, stationery, venue)
         detail_res = analyze_details(image_bgr, face_count=face_res.get("face_count", 0))

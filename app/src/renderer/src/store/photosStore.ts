@@ -154,11 +154,8 @@ export const usePhotosStore = create<PhotosStore>((set, get) => ({
       if (id !== null) {
         localStorage.setItem('firstpass_active_photo_id', String(id))
         localStorage.setItem('firstpass_last_photo', String(id))
-        localStorage.setItem('photo_culler_active_photo_id', String(id))
-        localStorage.setItem('photo_culler_last_photo', String(id))
       } else {
         localStorage.removeItem('firstpass_active_photo_id')
-        localStorage.removeItem('photo_culler_active_photo_id')
       }
     } catch {}
   },
@@ -168,7 +165,6 @@ export const usePhotosStore = create<PhotosStore>((set, get) => ({
     set({ autoAdvance: next })
     try {
       localStorage.setItem('firstpass_auto_advance', String(next))
-      localStorage.setItem('photo_culler_auto_advance', String(next))
     } catch {}
     toast(next ? '⚡ Auto-Advance Enabled' : '⏸ Auto-Advance Paused', { icon: next ? '⚡' : '⏸', duration: 1500 })
   },
@@ -177,7 +173,6 @@ export const usePhotosStore = create<PhotosStore>((set, get) => ({
     set({ filmstripPosition: pos })
     try {
       localStorage.setItem('firstpass_filmstrip', pos)
-      localStorage.setItem('photo_culler_filmstrip', pos)
     } catch {}
   },
 
@@ -208,10 +203,8 @@ export const usePhotosStore = create<PhotosStore>((set, get) => ({
     try {
       if (id) {
         localStorage.setItem('firstpass_last_photo', String(id))
-        localStorage.setItem('photo_culler_last_photo', String(id))
       } else {
         localStorage.removeItem('firstpass_last_photo')
-        localStorage.removeItem('photo_culler_last_photo')
       }
     } catch {}
   },
@@ -221,7 +214,6 @@ export const usePhotosStore = create<PhotosStore>((set, get) => ({
     const next = { ...state.viewOptions, ...opts }
     try {
       localStorage.setItem('firstpass_view_options', JSON.stringify(next))
-      localStorage.setItem('photo_culler_view_options', JSON.stringify(next))
     } catch {}
     return { viewOptions: next }
   }),

@@ -96,7 +96,7 @@ export default function FilterBar() {
   return (
     <div className="flex flex-col border-b border-neutral-800 bg-neutral-900/90 backdrop-blur-md flex-shrink-0">
       {/* Tier 1: Primary Controls (Search, Folders, Genre, Status, Fit, Sort) */}
-      <div className="flex items-center gap-2.5 px-4 py-2 border-b border-neutral-800/60 overflow-x-auto">
+      <div className="flex items-center gap-2.5 px-4 py-2 border-b border-neutral-800/60 overflow-x-auto [scrollbar-width:none]">
         {/* Instant Search input */}
         <div className="relative flex items-center flex-shrink-0">
           <Search size={13} className="absolute left-2.5 text-neutral-400 pointer-events-none" />
@@ -233,7 +233,7 @@ export default function FilterBar() {
       </div>
 
       {/* Tier 2: Scrollable Feature Filters */}
-      <div className="flex items-center gap-1.5 px-4 py-1.5 overflow-x-auto">
+      <div className="flex items-center gap-1.5 px-4 py-1.5 overflow-x-auto [scrollbar-width:none]">
         {/* Clear all active filters button */}
         {hasActiveFilters && (
           <button

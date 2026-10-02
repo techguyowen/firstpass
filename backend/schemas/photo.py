@@ -42,6 +42,8 @@ class PhotoResponse(PhotoBase):
     overall_score: Optional[float] = None
     
     duplicate_group_id: Optional[str] = None
+    group_similarity_score: Optional[float] = None
+    group_type: Optional[str] = None
     burst_group_id: Optional[str] = None
     is_burst_leader: bool = False
     scene_id: Optional[str] = None

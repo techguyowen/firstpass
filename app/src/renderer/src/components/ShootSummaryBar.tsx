@@ -29,7 +29,7 @@ function Chip({
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-neutral-800 text-[11px] text-neutral-300 whitespace-nowrap ${className ?? ''}`}
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-neutral-800 text-[11px] text-neutral-300 whitespace-nowrap shrink-0 ${className ?? ''}`}
     >
       {children}
     </span>
@@ -85,7 +85,7 @@ export default function ShootSummaryBar({ photos }: ShootSummaryBarProps) {
   const sameDay = stats.earliest === stats.latest || stats.latest === null
 
   return (
-    <div className="w-full bg-neutral-900/50 border-b border-neutral-800 px-4 py-1.5 flex items-center gap-1.5 flex-wrap overflow-hidden">
+    <div className="w-full bg-neutral-900/50 border-b border-neutral-800 px-4 py-1.5 flex items-center gap-1.5 flex-nowrap overflow-x-auto [scrollbar-width:none] flex-shrink-0">
       {/* Total */}
       <Chip>📷 {stats.total.toLocaleString()} photos</Chip>
 

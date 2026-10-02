@@ -1,13 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { usePhotosStore } from './store/photosStore';
-import { Settings as SettingsIcon, LayoutGrid, Columns, Download, HelpCircle, Eye, Palette, FolderUp } from 'lucide-react';
+import { Settings as SettingsIcon, LayoutGrid, Columns, Download, HelpCircle, BookOpen, Eye, Palette, FolderUp, ListFilter } from 'lucide-react';
 import Gallery from './pages/Gallery';
 import Review from './pages/Review';
 import Settings from './pages/Settings';
 import Compare from './pages/Compare';
+import SurveyMode from './pages/SurveyMode';
 import WelcomeScreen from './components/WelcomeScreen';
 import UpdateModal from './components/UpdateModal';
+import WalkthroughModal, { WALKTHROUGH_STORAGE_KEY } from './components/WalkthroughModal';
 import ShortcutsModal from './components/ShortcutsModal';
 import ThemePickerModal from './components/ThemePickerModal';
 import ExportModal from './components/ExportModal';
@@ -18,6 +20,7 @@ import { api } from './api/client';
 import toast from 'react-hot-toast';
 import type { UpdateCheckResponse } from './types/photo';
 import FirstPassLoader from './components/FirstPassLoader';
+import DragDropOverlay from './components/DragDropOverlay';
 
 export default function App() {
   const {
@@ -33,6 +36,7 @@ export default function App() {
   const [showExportModal, setShowExportModal] = useState(false);
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
   const [showVipModal, setShowVipModal] = useState(false);
+  const [showWalkthroughModal, setShowWalkthroughModal] = useState(false);
   const [exportSelectedIds, setExportSelectedIds] = useState<number[]>([]);
   const [exportInitialScope, setExportInitialScope] = useState<'accepted' | 'tagged' | 'tagged_selected' | 'rejected' | 'selected'>('accepted');
   const navigate = useNavigate();
@@ -41,6 +45,23 @@ export default function App() {
   // Initialize selected studio dark theme immediately
   useEffect(() => {
     applyTheme(getStoredThemeId());
+  }, []);
+
+  // Auto-open the interactive walkthrough on first launch
+  useEffect(() => {
+    try {
+      const hasSeen = localStorage.getItem(WALKTHROUGH_STORAGE_KEY)
+      if (!hasSeen) {
+        setShowWalkthroughModal(true)
+      }
+    } catch {}
+  }, []);
+
+  // Allow deeply-nested screens (e.g. WelcomeScreen via Gallery) to open the walkthrough
+  useEffect(() => {
+    const handleOpenWalkthrough = () => setShowWalkthroughModal(true);
+    window.addEventListener('app:open-walkthrough', handleOpenWalkthrough);
+    return () => window.removeEventListener('app:open-walkthrough', handleOpenWalkthrough);
   }, []);
 
   useEffect(() => {
@@ -144,6 +165,34 @@ export default function App() {
         case 'navigate-compare':
           handleGoCompare();
           break;
+        case 'navigate-survey':
+          navigate('/survey');
+          break;
+        case 'open-cull-to-target':
+          // Cull to Target modal lives in Gallery: route there first when needed,
+          // then re-dispatch so the mounted Gallery page opens the modal.
+          if (location.pathname !== '/') {
+            navigate('/');
+            setTimeout(() => {
+              window.dispatchEvent(new CustomEvent('app:menu-action', { detail: { action: 'open-cull-to-target' } }));
+            }, 150);
+          }
+          break;
+        case 'reclassify-duplicates': {
+          toast('Re-classifying duplicates (Burst vs Variation)...', { icon: '🔍', id: 'reclassify-toast' });
+          try {
+            const res = await api.reclassifyDuplicates();
+            if (res && res.success) {
+              toast.success(`Re-classified ${res.photos_classified} photos across ${res.groups_processed} groups`, { id: 'reclassify-toast' });
+              await usePhotosStore.getState().fetchPhotos();
+            } else {
+              toast.error('Re-classify failed', { id: 'reclassify-toast' });
+            }
+          } catch {
+            toast.error('Re-classify failed', { id: 'reclassify-toast' });
+          }
+          break;
+        }
         case 'navigate-settings':
           navigate('/settings');
           break;
@@ -152,6 +201,9 @@ export default function App() {
           break;
         case 'open-shortcuts':
           setShowShortcutsModal(true);
+          break;
+        case 'open-walkthrough':
+          setShowWalkthroughModal(true);
           break;
         case 'check-updates': {
           toast('Checking for updates...', { icon: '🔄', id: 'check-updates' });
@@ -266,7 +318,66 @@ export default function App() {
       cleanNavigate?.();
       cleanMenu?.();
     };
-  }, [navigate, activePhotoId, lastReviewedPhotoId, photos, undo, redo, toggleAutoAdvance, startScan]);
+  }, [navigate, location.pathname, activePhotoId, lastReviewedPhotoId, photos, undo, redo, toggleAutoAdvance, startScan]);
+
+  // Full-window drag-and-drop folder import
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const dragCounterRef = useRef(0);
+
+  useEffect(() => {
+    const handleDragEnter = (e: DragEvent) => {
+      e.preventDefault();
+      dragCounterRef.current++;
+      if (e.dataTransfer?.types?.includes('Files')) {
+        setIsDraggingFile(true);
+      }
+    };
+
+    const handleDragLeave = (e: DragEvent) => {
+      e.preventDefault();
+      dragCounterRef.current--;
+      if (dragCounterRef.current <= 0) {
+        setIsDraggingFile(false);
+        dragCounterRef.current = 0;
+      }
+    };
+
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault();
+    };
+
+    const handleDrop = async (e: DragEvent) => {
+      e.preventDefault();
+      setIsDraggingFile(false);
+      dragCounterRef.current = 0;
+
+      const files = e.dataTransfer?.files;
+      if (files && files.length > 0) {
+        const droppedPath = (files[0] as File & { path?: string }).path;
+        if (droppedPath) {
+          try {
+            toast('Scanning dropped folder...', { icon: '📁', id: 'scan-drop' });
+            await startScan(droppedPath, false);
+            navigate('/');
+          } catch (err: unknown) {
+            toast.error(err instanceof Error ? err.message : 'Failed to scan dropped folder', { id: 'scan-drop' });
+          }
+        }
+      }
+    };
+
+    window.addEventListener('dragenter', handleDragEnter);
+    window.addEventListener('dragleave', handleDragLeave);
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('drop', handleDrop);
+
+    return () => {
+      window.removeEventListener('dragenter', handleDragEnter);
+      window.removeEventListener('dragleave', handleDragLeave);
+      window.removeEventListener('dragover', handleDragOver);
+      window.removeEventListener('drop', handleDrop);
+    };
+  }, [startScan, navigate]);
 
   // Sync menu state whenever route or autoAdvance changes
   useEffect(() => {
@@ -393,6 +504,18 @@ export default function App() {
           <Columns size={22} />
         </button>
 
+        <button
+          onClick={() => navigate('/survey')}
+          title="Survey Mode — Rapid Rejection Review (Shift+S)"
+          className={`p-3 rounded-xl transition-all relative cursor-pointer ${
+            location.pathname === '/survey'
+              ? 'bg-accent text-white shadow-lg shadow-accent/30'
+              : 'text-gray-400 hover:text-white hover:bg-gray-800'
+          }`}
+        >
+          <ListFilter size={22} />
+        </button>
+
         {/* Global Export Button */}
         {totalPhotos > 0 && (
           <button
@@ -448,6 +571,15 @@ export default function App() {
           <HelpCircle size={22} />
         </button>
 
+        {/* Interactive Walkthrough Guide Button */}
+        <button
+          onClick={() => setShowWalkthroughModal(true)}
+          title="Interactive Feature Tour"
+          className="p-3 rounded-xl transition-all text-gray-400 hover:text-white hover:bg-gray-800 cursor-pointer"
+        >
+          <BookOpen size={22} />
+        </button>
+
         <button
           onClick={() => navigate('/settings')}
           title="Settings"
@@ -467,6 +599,7 @@ export default function App() {
           <Route path="/" element={<Gallery />} />
           <Route path="/review/:id" element={<Review />} />
           <Route path="/compare" element={<Compare />} />
+          <Route path="/survey" element={<SurveyMode />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </div>
@@ -483,6 +616,12 @@ export default function App() {
       <ShortcutsModal
         isOpen={showShortcutsModal}
         onClose={() => setShowShortcutsModal(false)}
+      />
+
+      {/* Interactive Feature Tour Modal */}
+      <WalkthroughModal
+        isOpen={showWalkthroughModal}
+        onClose={() => setShowWalkthroughModal(false)}
       />
 
       {/* Studio Themes Picker Modal */}
@@ -510,6 +649,9 @@ export default function App() {
         isOpen={showVipModal}
         onClose={() => setShowVipModal(false)}
       />
+
+      {/* Full-window drag-and-drop overlay */}
+      <DragDropOverlay isVisible={isDraggingFile} />
     </div>
   );
 }

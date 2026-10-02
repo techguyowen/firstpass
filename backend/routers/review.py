@@ -56,6 +56,122 @@ def _put_cached_thumbnail(photo_id: int, data: bytes):
             _thumb_cache.popitem(last=False)
 
 
+# ── Full-resolution in-memory LRU RAM cache (predictive lookahead) ──────────
+# Holds decoded/ready-to-serve full-resolution JPEG frames in RAM so rapid
+# navigation never touches disk, regardless of media speed (NVMe vs HDD vs
+# memory card). Bounded by frame count AND total bytes (~300 MB).
+
+RAM_CACHE_MAX_FRAMES = 50
+RAM_CACHE_MAX_BYTES = 300 * 1024 * 1024
+
+_ram_cache_lock = threading.Lock()
+LRU_RAM_CACHE: "OrderedDict[int, tuple[bytes, str]]" = OrderedDict()
+_ram_cache_bytes = 0
+
+
+def _get_cached_full_image(photo_id: int):
+    """Return (bytes, media_type) if the frame is primed in RAM, else None."""
+    with _ram_cache_lock:
+        entry = LRU_RAM_CACHE.get(photo_id)
+        if entry is not None:
+            LRU_RAM_CACHE.move_to_end(photo_id)
+            return entry
+    return None
+
+
+def _put_cached_full_image(photo_id: int, data: bytes, media_type: str = "image/jpeg") -> None:
+    """Store a frame in RAM, evicting oldest-first beyond count/byte budgets."""
+    global _ram_cache_bytes
+    if not data:
+        return
+    with _ram_cache_lock:
+        if photo_id in LRU_RAM_CACHE:
+            _ram_cache_bytes -= len(LRU_RAM_CACHE[photo_id][0])
+            del LRU_RAM_CACHE[photo_id]
+        LRU_RAM_CACHE[photo_id] = (data, media_type)
+        _ram_cache_bytes += len(data)
+        while (
+            len(LRU_RAM_CACHE) > RAM_CACHE_MAX_FRAMES
+            or _ram_cache_bytes > RAM_CACHE_MAX_BYTES
+        ):
+            _old_id, (_old_data, _old_media) = LRU_RAM_CACHE.popitem(last=False)
+            _ram_cache_bytes -= len(_old_data)
+
+
+def _ram_cache_size_bytes() -> int:
+    with _ram_cache_lock:
+        return _ram_cache_bytes
+
+
+def _clear_ram_cache() -> None:
+    """Test/maintenance helper: drop every frame from the RAM cache."""
+    global _ram_cache_bytes
+    with _ram_cache_lock:
+        LRU_RAM_CACHE.clear()
+        _ram_cache_bytes = 0
+
+
+def _load_full_image_bytes(photo) -> Optional[tuple]:
+    """Read (or extract for RAW) the full-resolution image bytes for a photo.
+
+    Returns (data, media_type), or None when the bytes cannot be produced.
+    Callers map missing files to 404 and production failures to 500.
+    """
+    path = Path(photo.path)
+
+    if path.suffix.lower() in RAW_EXTENSIONS:
+        # Check disk cache for preview first (ultra-fast SSD hit)
+        preview_path = PREVIEWS_DIR / f"{photo.id}.jpg"
+        if preview_path.exists():
+            try:
+                return preview_path.read_bytes(), "image/jpeg"
+            except Exception:
+                pass
+
+        # Convert RAW to JPEG or extract high-res embedded preview
+        try:
+            import rawpy
+            import cv2
+            with rawpy.imread(str(path)) as raw:
+                # 1. Try camera-embedded full/high-res JPEG preview
+                try:
+                    thumb = raw.extract_thumb()
+                    if thumb.format == rawpy.ThumbFormat.JPEG:
+                        preview_path.write_bytes(thumb.data)
+                        return bytes(thumb.data), "image/jpeg"
+                except Exception:
+                    pass
+
+                # 2. Fast demosaic fallback
+                rgb = raw.postprocess(use_camera_wb=True, half_size=True, no_auto_bright=False)
+            img_bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+            success, buf = cv2.imencode(".jpg", img_bgr, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            if success:
+                data = buf.tobytes()
+                try:
+                    preview_path.write_bytes(data)
+                except Exception:
+                    pass
+                return data, "image/jpeg"
+        except Exception as e:
+            logger.warning(f"RAW conversion failed for {photo.id}: {e}")
+            return None
+        return None
+    else:
+        media_type_map = {
+            ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+            ".png": "image/png", ".tif": "image/tiff",
+            ".tiff": "image/tiff", ".webp": "image/webp",
+            ".heic": "image/heic",
+        }
+        media_type = media_type_map.get(path.suffix.lower(), "image/jpeg")
+        try:
+            return path.read_bytes(), media_type
+        except Exception as e:
+            logger.warning(f"Could not read full image for {photo.id}: {e}")
+            return None
+
+
 # ── Photos list ─────────────────────────────────────────────────────────────
 
 @router.get("/photos", response_model=dict)
@@ -177,6 +293,58 @@ def get_photos(
     }
 
 
+@router.post("/photos/preload-lookahead")
+def preload_lookahead(body: dict, db: Session = Depends(get_db)):
+    """Pre-warm the in-memory RAM cache for predicted upcoming frames.
+
+    Accepts JSON: { "photo_ids": list[int] }.
+    Reads/extracts any requested frames not already cached so subsequent
+    GET /api/photos/{id}/full calls return X-Cache: HIT-RAM.
+    Returns { "success": True, "primed": <already cached>, "queued": <newly warmed> }.
+    """
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Invalid request body")
+
+    raw_ids = body.get("photo_ids", [])
+    if not isinstance(raw_ids, list):
+        raise HTTPException(status_code=400, detail="photo_ids must be a list")
+
+    seen: set = set()
+    photo_ids: List[int] = []
+    for pid in raw_ids:
+        try:
+            pid_int = int(pid)
+        except (TypeError, ValueError):
+            continue
+        if pid_int not in seen:
+            seen.add(pid_int)
+            photo_ids.append(pid_int)
+    # Bound per-request work so a huge window can't stall the server
+    photo_ids = photo_ids[:20]
+
+    primed = 0
+    queued = 0
+    for pid in photo_ids:
+        if _get_cached_full_image(pid) is not None:
+            primed += 1
+            continue
+        photo = db.query(PhotoModel).filter(PhotoModel.id == pid).first()
+        if not photo or not photo.path or not os.path.exists(photo.path):
+            continue
+        try:
+            loaded = _load_full_image_bytes(photo)
+        except Exception as e:
+            logger.warning(f"Lookahead prewarm failed for {pid}: {e}")
+            continue
+        if loaded is None:
+            continue
+        data, media_type = loaded
+        _put_cached_full_image(pid, data, media_type)
+        queued += 1
+
+    return {"success": True, "primed": primed, "queued": queued}
+
+
 @router.get("/photos/{photo_id}")
 def get_photo(photo_id: int, db: Session = Depends(get_db)):
     photo = db.query(PhotoModel).filter(PhotoModel.id == photo_id).first()
@@ -226,6 +394,22 @@ def toggle_photo_tag(photo_id: int, body: Optional[dict] = None, db: Session = D
         photo.is_tagged = bool(body["is_tagged"])
     else:
         photo.is_tagged = not bool(photo.is_tagged)
+    db.commit()
+    db.refresh(photo)
+    return _photo_to_dict(photo)
+
+
+@router.put("/photos/{photo_id}/burst-leader")
+def set_burst_leader(photo_id: int, db: Session = Depends(get_db)):
+    photo = db.query(PhotoModel).filter(PhotoModel.id == photo_id).first()
+    if not photo:
+        raise HTTPException(status_code=404, detail="Photo not found")
+    if not photo.burst_group_id:
+        raise HTTPException(status_code=400, detail="Photo is not in a burst group")
+    db.query(PhotoModel).filter(
+        PhotoModel.burst_group_id == photo.burst_group_id
+    ).update({PhotoModel.is_burst_leader: False}, synchronize_session=False)
+    photo.is_burst_leader = True
     db.commit()
     db.refresh(photo)
     return _photo_to_dict(photo)
@@ -299,74 +483,83 @@ def get_thumbnail(photo_id: int, db: Session = Depends(get_db)):
 
 @router.get("/photos/{photo_id}/full")
 def get_full_image(photo_id: int, db: Session = Depends(get_db)):
+    # 1. Ultra-fast in-memory RAM check (0ms — no disk regardless of media speed)
+    cached = _get_cached_full_image(photo_id)
+    if cached is not None:
+        data, media_type = cached
+        return Response(
+            content=data,
+            media_type=media_type,
+            headers={
+                "X-Cache": "HIT-RAM",
+                "Cache-Control": "public, max-age=86400, immutable",
+            },
+        )
+
     photo = db.query(PhotoModel).filter(PhotoModel.id == photo_id).first()
     if not photo:
         raise HTTPException(status_code=404, detail="Photo not found")
 
-    path = Path(photo.path)
-    if not path.exists():
+    if not photo.path or not os.path.exists(photo.path):
         logger.warning(f"Full image requested for offline/unmounted file: photo {photo_id} ({photo.path})")
         raise HTTPException(status_code=404, detail="Photo file offline or unmounted")
 
-    if path.suffix.lower() in RAW_EXTENSIONS:
-        # Check disk cache for preview first (ultra-fast <1ms SSD hit)
-        preview_path = PREVIEWS_DIR / f"{photo_id}.jpg"
-        if preview_path.exists():
-            return FileResponse(
-                str(preview_path),
-                media_type="image/jpeg",
-                headers={"Cache-Control": "public, max-age=86400, immutable"},
-            )
-
-        # Convert RAW to JPEG or extract high-res embedded preview
-        try:
-            import rawpy
-            import cv2
-            with rawpy.imread(str(path)) as raw:
-                # 1. Try camera-embedded full/high-res JPEG preview (~2ms extraction)
-                try:
-                    thumb = raw.extract_thumb()
-                    if thumb.format == rawpy.ThumbFormat.JPEG:
-                        preview_path.write_bytes(thumb.data)
-                        return FileResponse(
-                            str(preview_path),
-                            media_type="image/jpeg",
-                            headers={"Cache-Control": "public, max-age=86400, immutable"},
-                        )
-                except Exception:
-                    pass
-
-                # 2. Fast demosaic fallback
-                rgb = raw.postprocess(use_camera_wb=True, half_size=True, no_auto_bright=False)
-            img_bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-            success, buf = cv2.imencode(".jpg", img_bgr, [cv2.IMWRITE_JPEG_QUALITY, 85])
-            if success:
-                preview_path.write_bytes(buf.tobytes())
-                return FileResponse(
-                    str(preview_path),
-                    media_type="image/jpeg",
-                    headers={"Cache-Control": "public, max-age=86400, immutable"},
-                )
-        except Exception as e:
-            logger.warning(f"RAW conversion failed for {photo_id}: {e}")
+    loaded = _load_full_image_bytes(photo)
+    if loaded is None:
+        if Path(photo.path).suffix.lower() in RAW_EXTENSIONS:
             raise HTTPException(status_code=500, detail="RAW conversion failed")
-    else:
-        # Serve directly with caching
-        media_type_map = {
-            ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-            ".png": "image/png", ".tif": "image/tiff",
-            ".tiff": "image/tiff", ".webp": "image/webp",
-            ".heic": "image/heic",
-        }
-        media_type = media_type_map.get(path.suffix.lower(), "image/jpeg")
-        return FileResponse(
-            str(path),
-            media_type=media_type,
-            headers={"Cache-Control": "public, max-age=86400, immutable"},
-        )
+        raise HTTPException(status_code=500, detail="Could not read image file")
+
+    data, media_type = loaded
+    _put_cached_full_image(photo_id, data, media_type)
+    return Response(
+        content=data,
+        media_type=media_type,
+        headers={
+            "X-Cache": "MISS",
+            "Cache-Control": "public, max-age=86400, immutable",
+        },
+    )
 
 
 # ── Face Loupe ───────────────────────────────────────────────────────────────
+
+def build_faces_payload(raw_faces, vip_map, photo_id, photo_width, photo_height):
+    """Build Face Loupe face records with detection coordinate-space dims.
+
+    Each face carries `det_width`/`det_height` (the image dims the detector ran
+    on) so zoom targets can normalize `[x, y, w, h]` boxes exactly, even when
+    detection ran on a downscaled array. Rows analyzed before dims were
+    stamped fall back to the photo dims. Returns (faces, det_width, det_height).
+    """
+    faces = []
+    for idx, f in enumerate(raw_faces):
+        if not isinstance(f, dict):
+            continue
+        vip_id = vip_map.get(idx)
+        is_vip = (vip_id is not None) or bool(f.get("is_vip", False))
+        faces.append({
+            "index": idx,
+            "box": f.get("box", []),
+            "has_closed_eyes": f.get("has_closed_eyes", False),
+            "is_smiling": f.get("is_smiling", False),
+            "smile_score": f.get("smile_score", 0.0),
+            "sharpness": f.get("sharpness", 0.0),
+            "is_vip": is_vip,
+            "vip_id": vip_id,
+            "det_width": f.get("det_width") or photo_width,
+            "det_height": f.get("det_height") or photo_height,
+            "url": f"/api/photos/{photo_id}/face/{idx}"
+        })
+    det_width = photo_width
+    det_height = photo_height
+    for f in faces:
+        if f.get("det_width") and f.get("det_height"):
+            det_width = f["det_width"]
+            det_height = f["det_height"]
+            break
+    return faces, det_width, det_height
+
 
 @router.get("/photos/{photo_id}/faces")
 def get_photo_faces(photo_id: int, db: Session = Depends(get_db)):
@@ -380,27 +573,25 @@ def get_photo_faces(photo_id: int, db: Session = Depends(get_db)):
     vips = db.query(VipFace).filter(VipFace.photo_id == photo_id).all()
     vip_map = {v.face_index: v.id for v in vips}
 
-    faces = []
+    faces: list = []
+    det_width = photo.width
+    det_height = photo.height
     if photo.detected_faces_json:
         try:
             raw_faces = json.loads(photo.detected_faces_json)
-            for idx, f in enumerate(raw_faces):
-                vip_id = vip_map.get(idx)
-                is_vip = (vip_id is not None) or bool(f.get("is_vip", False))
-                faces.append({
-                    "index": idx,
-                    "box": f.get("box", []),
-                    "has_closed_eyes": f.get("has_closed_eyes", False),
-                    "is_smiling": f.get("is_smiling", False),
-                    "smile_score": f.get("smile_score", 0.0),
-                    "sharpness": f.get("sharpness", 0.0),
-                    "is_vip": is_vip,
-                    "vip_id": vip_id,
-                    "url": f"/api/photos/{photo_id}/face/{idx}"
-                })
+            faces, det_width, det_height = build_faces_payload(
+                raw_faces, vip_map, photo_id, photo.width, photo.height
+            )
         except Exception:
             pass
-    return {"faces": faces, "total": len(faces)}
+    return {
+        "faces": faces,
+        "total": len(faces),
+        "det_width": det_width,
+        "det_height": det_height,
+        "photo_width": photo.width,
+        "photo_height": photo.height,
+    }
 
 
 @router.get("/photos/{photo_id}/face/{face_index}")
@@ -488,7 +679,47 @@ def get_duplicate_groups(db: Session = Depends(get_db)):
             groups[gid] = []
         groups[gid].append(_photo_to_dict(p))
 
-    return [{"group_id": gid, "photos": photos} for gid, photos in groups.items()]
+    result = []
+    for gid, photos in groups.items():
+        group_type = next((ph.get("group_type") for ph in photos if ph.get("group_type")), None)
+        result.append({"group_id": gid, "group_type": group_type, "photos": photos})
+    return result
+
+
+@router.post("/duplicates/reclassify")
+def reclassify_duplicates(db: Session = Depends(get_db)):
+    """
+    Re-run intelligent duplicate classification on all existing duplicate groups.
+    Classifies each group as 'burst', 'variation', or 'similar'.
+    """
+    from ..analyzer.duplicates import classify_duplicate_group
+    from collections import defaultdict
+
+    # Get all photos in duplicate groups
+    dupes = db.query(PhotoModel).filter(PhotoModel.duplicate_group_id.isnot(None)).all()
+
+    group_map = defaultdict(list)
+    for p in dupes:
+        group_map[p.duplicate_group_id].append(p)
+
+    groups_processed = 0
+    for group_id, photos in group_map.items():
+        pairs = [(p, p.path) for p in photos]
+        try:
+            classifications = classify_duplicate_group(pairs)
+            for photo_obj, sim_score, grp_type in classifications:
+                photo_obj.group_similarity_score = sim_score
+                photo_obj.group_type = grp_type
+            groups_processed += 1
+        except Exception as e:
+            logger.warning(f"Error classifying group {group_id}: {e}")
+
+    db.commit()
+    return {
+        "success": True,
+        "groups_processed": groups_processed,
+        "photos_classified": len(dupes)
+    }
 
 
 # ── Export (async background job with progress) ──────────────────────────────────
@@ -798,6 +1029,46 @@ def apply_target_quota(req: TargetQuotaRequest, db: Session = Depends(get_db)):
     }
 
 
+@router.post("/photos/cull-to-target")
+def cull_to_target(body: dict, db: Session = Depends(get_db)):
+    """
+    Accept the top N photos by overall_score, reject the rest.
+    Only operates on analyzed photos. Pending/unanalyzed photos are untouched.
+    """
+    target_count = body.get("target_count", 100)
+    try:
+        target_count = max(1, int(target_count))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="target_count must be a positive integer")
+    folder = body.get("folder", None)  # optional: restrict to a folder
+
+    query = db.query(PhotoModel).filter(PhotoModel.is_analyzed == True)
+    if folder:
+        query = query.filter(or_(PhotoModel.folder == folder, PhotoModel.folder.startswith(folder + os.sep)))
+
+    # Sort by overall_score descending, nulls last
+    photos = query.order_by(PhotoModel.overall_score.desc().nullslast()).all()
+
+    accepted = 0
+    rejected = 0
+    for i, photo in enumerate(photos):
+        if i < target_count:
+            photo.status = "accepted"
+            accepted += 1
+        else:
+            photo.status = "rejected"
+            rejected += 1
+
+    db.commit()
+    return {
+        "success": True,
+        "target_count": target_count,
+        "accepted": accepted,
+        "rejected": rejected,
+        "total_analyzed": len(photos)
+    }
+
+
 @router.post("/cull/align-cameras")
 def align_cameras(folder: Optional[str] = None, db: Session = Depends(get_db)):
     """
@@ -1056,6 +1327,8 @@ def _photo_to_dict(p: PhotoModel) -> dict:
         "composition_score": p.composition_score,
         "overall_score": p.overall_score,
         "duplicate_group_id": p.duplicate_group_id,
+        "group_similarity_score": getattr(p, "group_similarity_score", None),
+        "group_type": getattr(p, "group_type", None),
         "burst_group_id": p.burst_group_id,
         "is_burst_leader": p.is_burst_leader,
         "scene_id": p.scene_id,

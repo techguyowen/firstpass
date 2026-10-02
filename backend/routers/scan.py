@@ -4,7 +4,7 @@ import uuid
 import logging
 import os
 import concurrent.futures
-from PIL import Image
+from PIL import Image, ImageOps
 
 logger = logging.getLogger(__name__)
 
@@ -47,11 +47,12 @@ def scan_worker(job_id: str, folder_path: str):
                 if not existing:
                     stat = os.stat(filepath)
 
-                    # Try to get basic dimensions
+                    # Try to get basic dimensions (with EXIF transpose)
                     width, height = 0, 0
                     try:
                         with Image.open(filepath) as img:
-                            width, height = img.size
+                            t_img = ImageOps.exif_transpose(img)
+                            width, height = t_img.size
                     except Exception as e:
                         logger.warning(f"Failed to probe dimensions for {filepath}: {e}")
                         scan_errors += 1
@@ -115,6 +116,26 @@ def scan_worker(job_id: str, folder_path: str):
         for pid, gid in groups.items():
             db.query(Photo).filter(Photo.id == pid).update({"duplicate_group_id": gid})
         db.commit()
+
+        # 4b. Intelligent duplicate classification (burst vs variation vs similar)
+        try:
+            from collections import defaultdict
+            from ..analyzer.duplicates import classify_duplicate_group
+            grouped = db.query(Photo).filter(Photo.duplicate_group_id.isnot(None)).all()
+            group_map = defaultdict(list)
+            for p in grouped:
+                group_map[p.duplicate_group_id].append(p)
+            for _gid, group_photos in group_map.items():
+                try:
+                    classifications = classify_duplicate_group([(p, p.path) for p in group_photos])
+                    for photo_obj, sim_score, grp_type in classifications:
+                        photo_obj.group_similarity_score = sim_score
+                        photo_obj.group_type = grp_type
+                except Exception as e:
+                    logger.warning(f"Error classifying duplicate group {_gid}: {e}")
+            db.commit()
+        except Exception as e:
+            logger.warning(f"Duplicate classification pass failed: {e}")
 
         # 5. Pre-generate fast thumbnails in parallel so gallery loads instantly
         thumbnails_dir = os.path.join(DATA_DIR, "thumbnails")

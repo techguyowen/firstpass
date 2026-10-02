@@ -6,9 +6,12 @@ import toast from 'react-hot-toast'
 import type { Photo } from '../types/photo'
 import { api } from '../api/client'
 
+export type DuplicateGroupType = 'burst' | 'variation' | 'similar'
+
 interface BurstGroupModalProps {
   burstGroupId: string
   burstPhotos: Photo[]
+  groupType?: DuplicateGroupType | null
   onClose: () => void
   onStatusChange: (photoId: number, status: 'accepted' | 'rejected' | 'pending') => void
 }
@@ -29,9 +32,12 @@ function statusRingClass(status: 'pending' | 'accepted' | 'rejected'): string {
 export default function BurstGroupModal({
   burstGroupId,
   burstPhotos,
+  groupType,
   onClose,
   onStatusChange,
 }: BurstGroupModalProps) {
+  const effectiveGroupType: DuplicateGroupType =
+    groupType ?? burstPhotos.find((p) => p.group_type)?.group_type ?? 'burst'
   const navigate = useNavigate()
   const [focusedIndex, setFocusedIndex] = useState(0)
   const stripRef = useRef<HTMLDivElement>(null)
@@ -101,6 +107,38 @@ export default function BurstGroupModal({
     toast('All burst frames rejected', { icon: '✕' })
   }
 
+  const headerTitle =
+    effectiveGroupType === 'variation' ? (
+      <>
+        🔄 Intentional Variations —{' '}
+        <span className="text-neutral-400 font-normal">{burstPhotos.length} shots</span>
+      </>
+    ) : effectiveGroupType === 'similar' ? (
+      <>
+        ≈ Similar Scene —{' '}
+        <span className="text-neutral-400 font-normal">{burstPhotos.length} shots</span>
+      </>
+    ) : (
+      <>
+        📷 Burst Sequence —{' '}
+        <span className="text-neutral-400 font-normal">{burstPhotos.length} frames</span>
+      </>
+    )
+
+  const headerSubtitle =
+    effectiveGroupType === 'variation'
+      ? 'These shots differ in pose, expression, or framing. Review each one.'
+      : effectiveGroupType === 'similar'
+        ? 'Same scene, different moments. Pick your favorites.'
+        : null
+
+  const groupBadgeClass =
+    effectiveGroupType === 'burst'
+      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+      : effectiveGroupType === 'variation'
+        ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+        : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+
   return (
     <div
       className="fixed inset-0 z-50 flex flex-col bg-black/90"
@@ -110,17 +148,29 @@ export default function BurstGroupModal({
     >
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-800 bg-neutral-950 shrink-0">
-        <h2 className="text-white font-semibold text-lg">
-          Burst Sequence —{' '}
-          <span className="text-neutral-400 font-normal">{burstPhotos.length} frames</span>
-        </h2>
+        <div>
+          <h2 className="text-white font-semibold text-lg flex items-center gap-2">
+            {headerTitle}
+            <span className={clsx('text-[11px] font-bold px-2 py-0.5 rounded-full', groupBadgeClass)}>
+              {effectiveGroupType === 'burst' ? '📷 Burst' : effectiveGroupType === 'variation' ? '🔄 Variation' : '≈ Similar'}
+            </span>
+          </h2>
+          {headerSubtitle && (
+            <p className="text-neutral-400 text-xs mt-0.5">{headerSubtitle}</p>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           <button
             onClick={handlePickBest}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-amber-500 hover:bg-amber-400 text-black text-sm font-bold transition-colors"
+            title={
+              effectiveGroupType === 'variation'
+                ? 'These look like intentional variations — consider reviewing each one'
+                : 'Keep the best frame, reject the rest of the burst'
+            }
           >
-            <Check size={14} />
-            Pick Best
+            <span aria-hidden="true">👑</span>
+            {effectiveGroupType === 'variation' ? 'Pick Sharpest' : 'Pick Best & Reject Rest'}
           </button>
           <button
             onClick={handleAcceptAll}

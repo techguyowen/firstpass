@@ -41,7 +41,6 @@ function VipFaceCard({
         const keys = raw ? new Set(JSON.parse(raw)) : new Set()
         keys.add(`${vip.photo_id}-${vip.face_index}`)
         localStorage.setItem('firstpass_unpinned_vips', JSON.stringify(Array.from(keys)))
-        localStorage.setItem('photo_culler_unpinned_vips', JSON.stringify(Array.from(keys)))
       } catch {}
       await api.removeVipFace(vip.id)
       onRemove(vip.id)

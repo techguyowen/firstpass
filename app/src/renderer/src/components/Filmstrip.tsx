@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CheckCircle2, XCircle, PanelBottom, PanelRight, ChevronDown, ChevronRight, GripVertical, Move, X, ArrowLeftRight } from 'lucide-react'
+import { CheckCircle2, XCircle, PanelBottom, PanelRight, ChevronDown, ChevronRight, GripVertical, Move, X, ArrowLeftRight, Eye, EyeOff, Crown } from 'lucide-react'
 import clsx from 'clsx'
 import { api } from '../api/client'
 import { preloadAndDecodeImage } from '../utils/imagePreloader'
@@ -12,6 +12,15 @@ type StatusFilter = 'all' | 'pending' | 'accepted' | 'rejected'
 
 const THUMB_SIZE_KEY = 'firstpass_filmstrip_thumb_size'
 const THUMB_SIZE_LEGACY_KEY = 'photo_culler_filmstrip_thumb_size'
+const DIM_REJECTED_KEY = 'firstpass_filmstrip_dim_rejected'
+
+function loadDimRejected(): boolean {
+  try {
+    const saved = localStorage.getItem(DIM_REJECTED_KEY)
+    if (saved === 'false') return false
+  } catch {}
+  return true
+}
 
 function loadThumbSize(): ThumbSize {
   try {
@@ -25,7 +34,6 @@ function loadThumbSize(): ThumbSize {
 function storeThumbSize(size: ThumbSize): void {
   try {
     localStorage.setItem(THUMB_SIZE_KEY, size)
-    localStorage.setItem(THUMB_SIZE_LEGACY_KEY, size)
   } catch {}
 }
 
@@ -42,6 +50,8 @@ interface FilmstripProps {
   onStartDrag?: (e: React.PointerEvent) => void
   /** Swap modules / filmstrip sides in the unified bottom dock. */
   onSwapSides?: () => void
+  /** Pro right-click menu for a thumbnail. */
+  onContextMenu?: (e: React.MouseEvent, photo: Photo) => void
 }
 
 function scoreColor(score: number | null): string {
@@ -62,6 +72,7 @@ export default function Filmstrip({
   fillHeight = false,
   onStartDrag,
   onSwapSides,
+  onContextMenu,
 }: FilmstripProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const activeThumbRef = useRef<HTMLButtonElement>(null)
@@ -69,10 +80,21 @@ export default function Filmstrip({
   const [showMenu, setShowMenu] = useState(false)
   const [thumbSize, setThumbSize] = useState<ThumbSize>(loadThumbSize)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [dimRejected, setDimRejected] = useState<boolean>(loadDimRejected)
 
   const handleSetThumbSize = (size: ThumbSize) => {
     setThumbSize(size)
     storeThumbSize(size)
+  }
+
+  const toggleDimRejected = () => {
+    setDimRejected((prev) => {
+      const next = !prev
+      try {
+        localStorage.setItem(DIM_REJECTED_KEY, String(next))
+      } catch {}
+      return next
+    })
   }
 
   const statusCounts = useMemo(() => {
@@ -87,10 +109,31 @@ export default function Filmstrip({
     return { all: photos.length, pending, accepted, rejected }
   }, [photos])
 
+  // Dim-instead-of-hide: while dimming is ON, rejected photos stay in their
+  // chronological place (dimmed to 25% opacity) regardless of the status
+  // filter. They are only filtered out when dimming is OFF and the user
+  // explicitly filters to 'accepted' or 'pending'.
   const visiblePhotos = useMemo(() => {
+    if (dimRejected) return photos
     if (statusFilter === 'all') return photos
     return photos.filter((p) => p.status === statusFilter)
-  }, [photos, statusFilter])
+  }, [photos, statusFilter, dimRejected])
+
+  // Burst group leaders: highest overall_score per burst_group_id (ties → first).
+  const burstLeaders = useMemo(() => {
+    const best = new Map<string, { id: number; score: number }>()
+    for (const p of photos) {
+      if (!p.burst_group_id) continue
+      const score = p.overall_score ?? -Infinity
+      const current = best.get(p.burst_group_id)
+      if (!current || score > current.score) {
+        best.set(p.burst_group_id, { id: p.id, score })
+      }
+    }
+    const leaders = new Set<number>()
+    for (const { id } of best.values()) leaders.add(id)
+    return leaders
+  }, [photos])
 
   const handleChipClick = (filter: StatusFilter) => {
     if (statusFilter !== filter) {
@@ -192,6 +235,20 @@ export default function Filmstrip({
           </span>
         </div>
         <div className="flex items-center gap-1">
+          {/* Dim Rejected toggle: gray out rejected instead of hiding */}
+          <button
+            onClick={toggleDimRejected}
+            className={clsx(
+              'flex items-center gap-1 px-1.5 py-0.5 mr-1 rounded-md border text-[10px] font-semibold transition-colors cursor-pointer',
+              dimRejected
+                ? 'bg-rose-600/20 border-rose-500/60 text-rose-300'
+                : 'text-neutral-500 border-neutral-800 hover:text-neutral-200 hover:border-neutral-600'
+            )}
+            title={dimRejected ? 'Dimming rejected photos in place — click to hide them instead' : 'Hiding rejected photos — click to dim them in place instead'}
+          >
+            {dimRejected ? <Eye size={11} /> : <EyeOff size={11} />}
+            <span>Dim Rejected</span>
+          </button>
           {/* Thumbnail density toggle */}
           <div
             className="flex items-center rounded-md border border-neutral-800 overflow-hidden mr-1"
@@ -369,21 +426,32 @@ export default function Filmstrip({
             : 'flex flex-col items-center overflow-y-auto overflow-x-hidden'
         )}
       >
-        {visiblePhotos.map((photo) => {
+        {visiblePhotos.map((photo, idx) => {
           const isActive = photo.id === currentPhotoId
+          const isDimmedRejected = photo.status === 'rejected' && dimRejected
+          // Burst connector adjacency: neighbors sharing the same burst_group_id.
+          const burstId = photo.burst_group_id ?? null
+          const prevInBurst = burstId !== null && idx > 0 && visiblePhotos[idx - 1].burst_group_id === burstId
+          const nextInBurst = burstId !== null && idx < visiblePhotos.length - 1 && visiblePhotos[idx + 1].burst_group_id === burstId
+          const inBurstRun = prevInBurst || nextInBurst
+          const isBurstLeader = burstId !== null && burstLeaders.has(photo.id)
           return (
             <button
               key={photo.id}
               ref={isActive ? activeThumbRef : null}
               onClick={() => onSelectPhoto(photo.id)}
+              onContextMenu={onContextMenu ? (e) => onContextMenu(e, photo) : undefined}
               onMouseEnter={() => preloadAndDecodeImage(api.getFullImageUrl(photo.id))}
               className={clsx(
                 'relative group flex-shrink-0 rounded-lg overflow-hidden transition-all duration-150 cursor-pointer bg-neutral-900 border-2',
                 thumbClass,
                 isBottom && fillHeight && 'max-h-24',
-                isActive
-                  ? 'border-blue-500 ring-2 ring-blue-500/30 shadow-lg shadow-blue-500/20 scale-105 z-10'
-                  : 'border-neutral-800 hover:border-neutral-600 opacity-75 hover:opacity-100'
+                isDimmedRejected && !isActive && 'opacity-25 grayscale-[60%] hover:opacity-75 hover:grayscale-0',
+                isDimmedRejected && isActive && 'opacity-60 grayscale-[25%] border-rose-500/80 ring-2 ring-rose-500/40',
+                !isDimmedRejected && isActive
+                  && 'border-blue-500 ring-2 ring-blue-500/30 shadow-lg shadow-blue-500/20 scale-105 z-10',
+                !isDimmedRejected && !isActive
+                  && 'border-neutral-800 hover:border-neutral-600 opacity-75 hover:opacity-100'
               )}
               title={photo.filename}
             >
@@ -396,6 +464,50 @@ export default function Filmstrip({
                 draggable={false}
               />
 
+              {/* Burst sequence connector bracket (top edge / left edge) */}
+              {inBurstRun && (
+                isHorizontal ? (
+                  <div
+                    className="absolute top-0 inset-x-0 flex justify-center pointer-events-none z-10"
+                    title={`Burst sequence (${burstId})`}
+                    aria-hidden="true"
+                  >
+                    <div
+                      className={clsx(
+                        'h-[3px] w-full bg-violet-400/90 shadow-[0_0_6px_rgba(167,139,250,0.9)]',
+                        !prevInBurst && 'rounded-l-full ml-1',
+                        !nextInBurst && 'rounded-r-full mr-1'
+                      )}
+                    />
+                  </div>
+                ) : (
+                  <div
+                    className="absolute left-0 inset-y-0 flex items-center pointer-events-none z-10"
+                    title={`Burst sequence (${burstId})`}
+                    aria-hidden="true"
+                  >
+                    <div
+                      className={clsx(
+                        'w-[3px] h-full bg-violet-400/90 shadow-[0_0_6px_rgba(167,139,250,0.9)]',
+                        !prevInBurst && 'rounded-t-full mt-1',
+                        !nextInBurst && 'rounded-b-full mb-1'
+                      )}
+                    />
+                  </div>
+                )
+              )}
+
+              {/* Burst leader crown: highest score in the burst */}
+              {isBurstLeader && (
+                <div
+                  className="absolute bottom-5 left-1 z-10 flex items-center gap-0.5 bg-amber-400/95 text-neutral-950 text-[9px] px-1 py-px rounded-full font-black shadow"
+                  title="Burst leader: highest AI score in this burst"
+                >
+                  <Crown size={9} strokeWidth={3} />
+                  <span>Leader</span>
+                </div>
+              )}
+
               {/* Status Indicator (top-right) */}
               <div className="absolute top-1 right-1 flex items-center gap-0.5 z-10">
                 {photo.status === 'accepted' && (
@@ -404,9 +516,15 @@ export default function Filmstrip({
                   </div>
                 )}
                 {photo.status === 'rejected' && (
-                  <div className="w-3.5 h-3.5 bg-rose-600 rounded-full flex items-center justify-center shadow">
-                    <XCircle size={10} className="text-white" />
-                  </div>
+                  dimRejected ? (
+                    <div className="min-w-[14px] h-3.5 px-0.5 bg-rose-600/90 rounded-full flex items-center justify-center shadow text-white text-[9px] font-black leading-none" title="Rejected (dimmed in place)">
+                      ✕
+                    </div>
+                  ) : (
+                    <div className="w-3.5 h-3.5 bg-rose-600 rounded-full flex items-center justify-center shadow">
+                      <XCircle size={10} className="text-white" />
+                    </div>
+                  )
                 )}
               </div>
 

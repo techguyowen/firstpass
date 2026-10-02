@@ -50,8 +50,11 @@ button:focus-visible {
 /* Lights Out Dimming Transitions */
 .lights-out-dim {
   opacity: 0.15 !important;
-  pointer-events: none !important;
-  transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.lights-out-dim:hover {
+  opacity: 1 !important;
 }
 
 .lights-out-blackout {

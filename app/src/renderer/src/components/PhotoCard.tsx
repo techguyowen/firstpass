@@ -15,6 +15,7 @@ interface Props {
   onOpenBurstModal?: () => void
   onSelect: () => void
   onClick: (e: React.MouseEvent) => void
+  onContextMenu?: (e: React.MouseEvent) => void
 }
 
 function ScoreBadge({ score, isAnalyzed }: { score: number | null; isAnalyzed?: boolean }) {
@@ -43,6 +44,7 @@ export default function PhotoCard({
   onOpenBurstModal,
   onSelect,
   onClick,
+  onContextMenu,
 }: Props) {
   const [imgError, setImgError] = useState(false)
   const [loaded, setLoaded] = useState(false)
@@ -76,7 +78,9 @@ export default function PhotoCard({
 
   return (
     <div
+      data-photo-id={photo.id}
       onClick={onClick}
+      onContextMenu={onContextMenu}
       className={clsx(
         'relative group rounded-xl overflow-hidden cursor-pointer border-2 transition-all duration-150 flex flex-col',
         'bg-neutral-900 hover:border-indigo-500 hover:shadow-indigo-500/10',
@@ -190,6 +194,33 @@ export default function PhotoCard({
           )}
         </div>
 
+        {/* Duplicate group-type badge (bottom-left) */}
+        {photo.duplicate_group_id && (
+          <div
+            className={clsx(
+              'absolute bottom-2 left-2 rounded-md px-1.5 py-0.5 z-10 backdrop-blur-sm text-[9px] font-bold border',
+              photo.group_type === 'burst' && 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+              photo.group_type === 'variation' && 'bg-purple-500/20 text-purple-300 border-purple-500/30',
+              photo.group_type === 'similar' && 'bg-blue-500/20 text-blue-300 border-blue-500/30',
+              !photo.group_type && 'bg-neutral-500/20 text-neutral-300 border-neutral-500/30',
+            )}
+            title={
+              photo.group_type === 'burst'
+                ? 'Burst — nearly identical frames'
+                : photo.group_type === 'variation'
+                  ? 'Intentional variation — review each shot'
+                  : photo.group_type === 'similar'
+                    ? 'Similar scene, different moment'
+                    : 'Part of duplicate group'
+            }
+          >
+            {photo.group_type === 'burst' && '📷 Burst'}
+            {photo.group_type === 'variation' && '🔄 Variation'}
+            {photo.group_type === 'similar' && '≈ Similar'}
+            {!photo.group_type && '⊕ Dupe'}
+          </div>
+        )}
+
         {/* Face count badge */}
         {photo.face_count != null && photo.face_count > 0 && (
           <div className="absolute bottom-2 right-2 flex items-center gap-1 bg-black/75 backdrop-blur-sm rounded-md px-1.5 py-0.5 z-10 border border-gray-800">
@@ -287,8 +318,19 @@ export default function PhotoCard({
                 </span>
               )}
               {photo.duplicate_group_id && (
-                <span title="Part of duplicate group" className="text-[9px] font-bold bg-neutral-700/90 text-white px-1 py-0.2 rounded">
-                  DUP
+                <span
+                  title={
+                    photo.group_type === 'burst'
+                      ? 'Burst — nearly identical frames'
+                      : photo.group_type === 'variation'
+                        ? 'Intentional variation — review each shot'
+                        : photo.group_type === 'similar'
+                          ? 'Similar scene, different moment'
+                          : 'Part of duplicate group'
+                  }
+                  className="text-[9px] font-bold bg-neutral-700/90 text-white px-1 py-0.2 rounded"
+                >
+                  {photo.group_type === 'burst' ? 'BURST' : photo.group_type === 'variation' ? 'VARIATION' : photo.group_type === 'similar' ? 'SIMILAR' : 'DUP'}
                 </span>
               )}
             </div>

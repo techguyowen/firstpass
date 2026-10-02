@@ -104,6 +104,10 @@ def analyze_worker(job_id: str, photo_ids: list[int] = None, force_reanalyze: bo
                             photo.group_consistency_score = res.get("group_consistency_score")
                             photo.detected_faces_json = res.get("detected_faces_json")
 
+                            if res.get("faces", {}).get("det_width") and res.get("faces", {}).get("det_height"):
+                                photo.width = res["faces"]["det_width"]
+                                photo.height = res["faces"]["det_height"]
+
                             photo.aesthetic_score = res["aesthetic"].get("aesthetic_score")
                             photo.composition_score = res["composition"].get("composition_score")
                             photo.overall_score = res["overall_score"]
@@ -182,7 +186,26 @@ def analyze_worker(job_id: str, photo_ids: list[int] = None, force_reanalyze: bo
                 p.scene_id, p.scene_name = scene_map[p.id]
             elif not enable_scenes:
                 p.scene_id, p.scene_name = None, None
-            
+
+        # ── Intelligent duplicate classification (burst vs variation vs similar) ──
+        try:
+            from collections import defaultdict
+            from ..analyzer.duplicates import classify_duplicate_group
+            dup_map = defaultdict(list)
+            for p in all_photos:
+                if p.duplicate_group_id:
+                    dup_map[p.duplicate_group_id].append(p)
+            for _gid, group_photos in dup_map.items():
+                try:
+                    classifications = classify_duplicate_group([(p, p.path) for p in group_photos])
+                    for photo_obj, sim_score, grp_type in classifications:
+                        photo_obj.group_similarity_score = sim_score
+                        photo_obj.group_type = grp_type
+                except Exception as e:
+                    print(f"Error classifying duplicate group {_gid}: {e}")
+        except Exception as e:
+            print(f"Duplicate classification pass failed: {e}")
+
         db.commit()
 
         with jobs_lock:
@@ -308,6 +331,9 @@ def reanalyze_single_photo(photo_id: int, db: Session = Depends(get_db)):
     photo.smile_score = res.get("smile_score", 0.0)
     photo.group_consistency_score = res.get("group_consistency_score")
     photo.detected_faces_json = res.get("detected_faces_json")
+    if res.get("faces", {}).get("det_width") and res.get("faces", {}).get("det_height"):
+        photo.width = res["faces"]["det_width"]
+        photo.height = res["faces"]["det_height"]
     photo.aesthetic_score = res.get("aesthetic", {}).get("aesthetic_score")
     photo.composition_score = res.get("composition", {}).get("composition_score")
     photo.overall_score = res.get("overall_score")

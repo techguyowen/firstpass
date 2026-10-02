@@ -34,7 +34,6 @@ export async function initApiToken(): Promise<string> {
         cachedToken = tok
         try {
           localStorage.setItem('firstpass_api_token', tok)
-          localStorage.setItem('photo_culler_api_token', tok)
         } catch {
           // ignore storage failures
         }
@@ -269,6 +268,16 @@ export const api = {
     return data
   },
 
+  async reclassifyDuplicates(): Promise<{ success: boolean; groups_processed: number; photos_classified: number }> {
+    const { data } = await axiosInstance.post('/api/duplicates/reclassify')
+    return data
+  },
+
+  async cullToTarget(targetCount: number, folder?: string): Promise<{ success: boolean; target_count: number; accepted: number; rejected: number; total_analyzed: number }> {
+    const { data } = await axiosInstance.post('/api/photos/cull-to-target', { target_count: targetCount, folder })
+    return data
+  },
+
   async getVipFaces(): Promise<{ vip_faces: any[] }> {
     const { data } = await axiosInstance.get('/api/vip-faces')
     return data
@@ -290,6 +299,20 @@ export const api = {
   async toggleTag(photoId: number, is_tagged?: boolean): Promise<Photo> {
     const { data } = await axiosInstance.put(`/api/photos/${photoId}/tag`, is_tagged !== undefined ? { is_tagged } : {})
     return data
+  },
+
+  async setBurstLeader(photoId: number): Promise<Photo> {
+    const { data } = await axiosInstance.put(`/api/photos/${photoId}/burst-leader`)
+    return data
+  },
+
+  async preloadLookahead(photoIds: number[]): Promise<{ success: boolean; primed: number; queued: number }> {
+    try {
+      const { data } = await axiosInstance.post('/api/photos/preload-lookahead', { photo_ids: photoIds })
+      return data
+    } catch {
+      return { success: false, primed: 0, queued: 0 }
+    }
   },
 }
 

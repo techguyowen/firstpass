@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Sliders, Trash2, AlertTriangle, FolderOpen, Cpu, Zap, Download, RefreshCw, Github, Sparkles, SlidersHorizontal, Check, LifeBuoy, ClipboardCopy } from 'lucide-react'
+import { Sliders, Trash2, AlertTriangle, FolderOpen, Cpu, Zap, Download, RefreshCw, Github, Sparkles, SlidersHorizontal, Check, LifeBuoy, ClipboardCopy, Keyboard, Wand2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
 import { api } from '../api/client'
+import { STRICTNESS_PRESETS, closestStrictnessIndex } from '../utils/strictness'
 import type { Settings, SystemInfo, UpdateCheckResponse } from '../types/photo'
 import UpdateModal from '../components/UpdateModal'
 import FirstPassLoader from '../components/FirstPassLoader'
@@ -20,6 +21,16 @@ import {
   PRESET_WORKSPACES,
   WorkspaceLayout
 } from '../utils/workspaceManager'
+import ShortcutsModal from '../components/ShortcutsModal'
+import {
+  applyShortcutPreset,
+  getActivePresetId,
+  getActivePresetName,
+  getShortcutPresets,
+  resetShortcutsToDefault,
+  subscribeShortcuts
+} from '../utils/shortcutsManager'
+import { isAudioFeedbackEnabled, setAudioFeedbackEnabled } from '../utils/audioFeedback'
 
 function SliderRow({
   label, description, value, min, max, step = 1, unit = '',
@@ -118,6 +129,50 @@ export default function Settings() {
     return localStorage.getItem('firstpass_filmstrip_position') || localStorage.getItem('photo_culler_filmstrip_position') || 'bottom'
   })
 
+  // AI Strictness + Calibrate AI
+  interface CalibrateResult {
+    total: number
+    acceptMean: number
+    rejectMean: number
+    suggestedIdx: number
+  }
+  const [calibrating, setCalibrating] = useState(false)
+  const [calibrateResult, setCalibrateResult] = useState<CalibrateResult | null>(null)
+  const [calibrateError, setCalibrateError] = useState<string | null>(null)
+
+  // Keyboard shortcuts preset
+  const [shortcutPresetId, setShortcutPresetId] = useState<string>(getActivePresetId)
+  const [shortcutPresetName, setShortcutPresetName] = useState<string>(getActivePresetName)
+  const [showShortcutsModal, setShowShortcutsModal] = useState(false)
+
+  // Audio feedback & shutter sounds (local-only preference)
+  const [audioFeedback, setAudioFeedback] = useState<boolean>(() => isAudioFeedbackEnabled())
+  const handleAudioFeedbackChange = (enabled: boolean) => {
+    setAudioFeedback(enabled)
+    setAudioFeedbackEnabled(enabled)
+  }
+
+  useEffect(() => {
+    return subscribeShortcuts(() => {
+      setShortcutPresetId(getActivePresetId())
+      setShortcutPresetName(getActivePresetName())
+    })
+  }, [])
+
+  const handleShortcutPresetChange = (id: string) => {
+    applyShortcutPreset(id)
+    setShortcutPresetId(getActivePresetId())
+    setShortcutPresetName(getActivePresetName())
+    toast.success('Shortcut preset applied')
+  }
+
+  const handleShortcutsReset = () => {
+    resetShortcutsToDefault()
+    setShortcutPresetId(getActivePresetId())
+    setShortcutPresetName(getActivePresetName())
+    toast.success('Shortcuts reset to FirstPass Default')
+  }
+
   const handleBackdropChange = (mode: CanvasBackdropMode) => {
     setBackdrop(mode)
     setStoredCanvasBackdrop(mode)
@@ -135,21 +190,18 @@ export default function Settings() {
   const handleHistogramDefaultChange = (mode: string) => {
     setDefaultHistogramMode(mode)
     localStorage.setItem('firstpass_histogram_mode', mode)
-    localStorage.setItem('photo_culler_histogram_mode', mode)
     toast.success(`Histogram default: ${mode}`)
   }
 
   const handleFaceLoupeDefaultChange = (mode: string) => {
     setDefaultFaceLoupeMode(mode)
     localStorage.setItem('firstpass_faceloupe_mode', mode)
-    localStorage.setItem('photo_culler_faceloupe_mode', mode)
     toast.success(`Face Loupe default: ${mode}`)
   }
 
   const handleFilmstripDefaultChange = (pos: string) => {
     setDefaultFilmstripPos(pos)
     localStorage.setItem('firstpass_filmstrip_position', pos)
-    localStorage.setItem('photo_culler_filmstrip_position', pos)
     toast.success(`Filmstrip default: ${pos}`)
   }
 
@@ -190,6 +242,60 @@ export default function Settings() {
       toast.error('Failed to save settings')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const strictnessIdx = settings
+    ? closestStrictnessIndex(settings.auto_accept_threshold, settings.min_overall_score)
+    : 2
+
+  const handleStrictnessChange = async (idx: number) => {
+    const preset = STRICTNESS_PRESETS[idx]
+    if (!settings || !preset) return
+    setSettings({ ...settings, auto_accept_threshold: preset.auto_accept, min_overall_score: preset.min_score })
+    try {
+      await api.updateSettings({ auto_accept_threshold: preset.auto_accept, min_overall_score: preset.min_score })
+      toast.success(`Strictness updated: ${preset.label}`)
+    } catch {
+      toast.error('Failed to update strictness')
+    }
+  }
+
+  const handleCalibrate = async () => {
+    setCalibrating(true)
+    setCalibrateResult(null)
+    setCalibrateError(null)
+    try {
+      const res = await api.getPhotos({ per_page: 9999 })
+      const reviewed = res.photos.filter(p => p.status !== 'pending' && p.overall_score !== null)
+      if (reviewed.length < 20) {
+        setCalibrateError('Not enough data yet — review at least 20 photos first')
+        return
+      }
+      const accepted = reviewed.filter(p => p.status === 'accepted')
+      const rejected = reviewed.filter(p => p.status === 'rejected')
+      if (accepted.length === 0 || rejected.length === 0) {
+        setCalibrateError('Not enough data yet — review at least 20 photos first')
+        return
+      }
+      const mean = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length
+      const acceptMean = mean(accepted.map(p => p.overall_score as number))
+      const rejectMean = mean(rejected.map(p => p.overall_score as number))
+      // Suggest the preset whose auto-accept bar sits closest to what the
+      // user actually accepts; a small accept/reject gap leans looser.
+      const gap = acceptMean - rejectMean
+      let suggestedIdx = closestStrictnessIndex(acceptMean, rejectMean)
+      if (gap < 12 && suggestedIdx > 0) suggestedIdx -= 1
+      setCalibrateResult({
+        total: reviewed.length,
+        acceptMean: Math.round(acceptMean),
+        rejectMean: Math.round(rejectMean),
+        suggestedIdx,
+      })
+    } catch {
+      setCalibrateError('Failed to analyze your selections')
+    } finally {
+      setCalibrating(false)
     }
   }
 
@@ -255,21 +361,96 @@ export default function Settings() {
 
   return (
     <div className="flex flex-col h-full bg-neutral-950">
-      <div className="flex items-center justify-between px-6 py-4 bg-neutral-900 border-b border-neutral-800 flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <Sliders size={18} className="text-blue-400" />
-          <h1 className="text-white font-semibold text-lg">Settings</h1>
+      <div className="flex items-center justify-between gap-2 px-4 sm:px-6 py-4 bg-neutral-900 border-b border-neutral-800 flex-shrink-0 overflow-x-auto [scrollbar-width:none] min-w-0">
+        <div className="flex items-center gap-2 shrink-0 min-w-0">
+          <Sliders size={18} className="text-blue-400 shrink-0" />
+          <h1 className="text-white font-semibold text-lg whitespace-nowrap">Settings</h1>
         </div>
         <button
           onClick={handleSave}
           disabled={saving}
-          className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm rounded-lg transition-colors"
+          className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm rounded-lg transition-colors shrink-0 whitespace-nowrap"
         >
           {saving ? 'Saving…' : 'Save Changes'}
         </button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6 pb-28 max-w-2xl mx-auto w-full">
+
+        {/* AI Strictness */}
+        <Section title="AI Strictness" icon={SlidersHorizontal}>
+          <p className="text-xs text-neutral-400 mb-4">
+            Control how aggressive the AI is. Strict keeps only the very best shots; loose lets more photos through.
+          </p>
+          <div className="flex justify-between items-baseline mb-1">
+            <label className="text-sm font-medium text-neutral-200">
+              {STRICTNESS_PRESETS[strictnessIdx].label}
+            </label>
+            <span className="text-xs text-neutral-500 font-mono">
+              accept ≥ {STRICTNESS_PRESETS[strictnessIdx].auto_accept} · reject &lt; {STRICTNESS_PRESETS[strictnessIdx].min_score}
+            </span>
+          </div>
+          <p className="text-xs text-neutral-500 mb-2">
+            {STRICTNESS_PRESETS[strictnessIdx].description}
+          </p>
+          <input
+            type="range" min={0} max={4} step={1} value={strictnessIdx}
+            onChange={e => handleStrictnessChange(parseInt(e.target.value, 10))}
+            className="w-full h-1.5 rounded-full bg-neutral-700 accent-emerald-500 cursor-pointer"
+          />
+          <div className="flex justify-between mt-1.5">
+            {STRICTNESS_PRESETS.map((p, i) => (
+              <button
+                key={p.label}
+                type="button"
+                onClick={() => handleStrictnessChange(i)}
+                className={clsx(
+                  'text-[10px] font-medium transition-colors cursor-pointer',
+                  i === strictnessIdx ? 'text-emerald-400' : 'text-neutral-500 hover:text-neutral-300'
+                )}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </Section>
+
+        {/* Calibrate AI to My Style */}
+        <Section title="Calibrate AI to My Style" icon={Wand2}>
+          <p className="text-xs text-neutral-400 mb-4">
+            Analyzes your accept/reject history to tune scoring thresholds to match your preferences.
+          </p>
+          <button
+            type="button"
+            onClick={handleCalibrate}
+            disabled={calibrating}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white text-xs font-semibold rounded-xl transition-colors"
+          >
+            <Wand2 size={14} />
+            {calibrating ? 'Analyzing…' : 'Calibrate AI from My Selections'}
+          </button>
+          {calibrateError && (
+            <p className="text-xs text-amber-400 mt-3">{calibrateError}</p>
+          )}
+          {calibrateResult && (
+            <div className="mt-4 p-4 bg-neutral-950 border border-emerald-800/40 rounded-xl space-y-2">
+              <p className="text-xs text-neutral-300 leading-relaxed">
+                Based on your {calibrateResult.total} selections: you tend to accept photos scoring{' '}
+                <strong className="text-emerald-400">{calibrateResult.acceptMean}+</strong> and reject
+                photos scoring <strong className="text-rose-400">{calibrateResult.rejectMean}−</strong>.
+                {' '}Suggested strictness:{' '}
+                <strong className="text-white">{STRICTNESS_PRESETS[calibrateResult.suggestedIdx].label}</strong>
+              </p>
+              <button
+                type="button"
+                onClick={() => handleStrictnessChange(calibrateResult.suggestedIdx)}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl transition-colors"
+              >
+                Apply Suggestion ({STRICTNESS_PRESETS[calibrateResult.suggestedIdx].label})
+              </button>
+            </div>
+          )}
+        </Section>
 
         {/* Library stats */}
         {stats && (
@@ -452,6 +633,34 @@ export default function Settings() {
           />
         </Section>
 
+        <Section title="Duplicate Detection" icon={Sparkles}>
+          <div className="flex items-center justify-between py-1">
+            <div className="pr-4">
+              <div className="text-sm font-medium text-neutral-200">Intelligent Group Classification</div>
+              <div className="text-xs text-neutral-500 mt-0.5">
+                Re-analyze existing duplicate groups as Burst (near-identical), Variation (intentional changes), or Similar Scene.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={async () => {
+                const id = 'reclassify-toast'
+                toast.loading('Classifying duplicate groups...', { id })
+                try {
+                  const res = await api.reclassifyDuplicates()
+                  toast.success(`Classified ${res.groups_processed} groups (${res.photos_classified} photos)`, { id })
+                } catch {
+                  toast.error('Re-classification failed', { id })
+                }
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-xl transition-all shadow-lg shadow-indigo-600/20 shrink-0"
+            >
+              <RefreshCw size={14} />
+              🔍 Re-classify Duplicates
+            </button>
+          </div>
+        </Section>
+
         <Section title="Score Weights" icon={Sliders}>
           <p className="text-xs text-neutral-500 mb-4">
             Adjust how much each factor contributes to the overall quality score.
@@ -484,7 +693,13 @@ export default function Settings() {
         </Section>
 
         <Section title="Performance" icon={settings.gpu_enabled ? Zap : Cpu}>
-          <div className="flex items-center justify-between mb-5">
+          <ToggleRow
+            label="🔊 Audio Feedback & Shutter Sounds"
+            description="Plays a subtle shutter click on Accept, paper flick on Reject, and chime on VIP Pin."
+            enabled={audioFeedback}
+            onChange={handleAudioFeedbackChange}
+          />
+          <div className="flex items-center justify-between mb-5 mt-2">
             <div>
               <div className="text-sm font-medium text-neutral-200">GPU Acceleration</div>
               <div className="text-xs text-neutral-500 mt-0.5">
@@ -659,6 +874,46 @@ export default function Settings() {
           </div>
         </Section>
 
+        {/* Keyboard Shortcuts */}
+        <Section title="Keyboard Shortcuts" icon={Keyboard}>
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <div className="text-sm font-medium text-neutral-200">Active preset: {shortcutPresetName}</div>
+              <div className="text-xs text-neutral-500 mt-0.5">
+                Switch presets instantly or rebind any key to match your muscle memory.
+              </div>
+            </div>
+          </div>
+          <label className="block text-xs font-medium text-neutral-300 mb-1">Shortcut preset</label>
+          <select
+            value={shortcutPresetId}
+            onChange={e => handleShortcutPresetChange(e.target.value)}
+            className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500 mb-3"
+          >
+            {getShortcutPresets().map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+            {shortcutPresetId === 'custom' && <option value="custom">Custom</option>}
+          </select>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setShowShortcutsModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl transition-colors"
+            >
+              <Keyboard size={14} />
+              Customize Keyboard Shortcuts…
+            </button>
+            <button
+              type="button"
+              onClick={handleShortcutsReset}
+              className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold rounded-xl border border-neutral-700 transition-colors"
+            >
+              Reset Shortcuts
+            </button>
+          </div>
+        </Section>
+
         {/* Danger zone */}
         <div className="bg-red-950/30 rounded-xl p-5 border border-red-900/50">
           <div className="flex items-center gap-2 mb-3">
@@ -731,6 +986,12 @@ export default function Settings() {
           onClose={() => setShowUpdateModal(false)}
         />
       )}
+
+      <ShortcutsModal
+        isOpen={showShortcutsModal}
+        onClose={() => setShowShortcutsModal(false)}
+        initialTab="customize"
+      />
     </div>
   )
 }

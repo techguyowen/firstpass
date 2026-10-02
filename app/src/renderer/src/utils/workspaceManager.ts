@@ -136,7 +136,6 @@ export function getActiveWorkspaceId(): string {
 export function setActiveWorkspaceId(id: string): void {
   try {
     localStorage.setItem(STORAGE_KEY_ACTIVE_ID, id)
-    localStorage.setItem(LEGACY_STORAGE_KEY_ACTIVE_ID, id)
   } catch {}
 }
 
@@ -157,9 +156,7 @@ export function saveCustomWorkspace(name: string, currentLayout: Omit<WorkspaceL
 
   try {
     localStorage.setItem(STORAGE_KEY_WORKSPACES, JSON.stringify(updated))
-    localStorage.setItem(LEGACY_STORAGE_KEY_WORKSPACES, JSON.stringify(updated))
     localStorage.setItem(STORAGE_KEY_ACTIVE_ID, id)
-    localStorage.setItem(LEGACY_STORAGE_KEY_ACTIVE_ID, id)
   } catch {}
 
   return newWorkspace
@@ -169,7 +166,6 @@ export function deleteCustomWorkspace(id: string): void {
   const existing = getCustomWorkspaces().filter(w => w.id !== id)
   try {
     localStorage.setItem(STORAGE_KEY_WORKSPACES, JSON.stringify(existing))
-    localStorage.setItem(LEGACY_STORAGE_KEY_WORKSPACES, JSON.stringify(existing))
     if (getActiveWorkspaceId() === id) {
       setActiveWorkspaceId('default-studio')
     }

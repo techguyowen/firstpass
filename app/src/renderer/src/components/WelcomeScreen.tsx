@@ -1,11 +1,13 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Zap, Image as ImageIcon, Layers } from 'lucide-react';
 import { usePhotosStore } from '../store/photosStore';
 import ProgressModal from './ProgressModal';
 import FirstPassLoader from './FirstPassLoader';
+import WalkthroughModal from './WalkthroughModal';
 
-export default function WelcomeScreen({ onImport }: { onImport?: () => void }) {
+export default function WelcomeScreen({ onImport, onOpenWalkthrough }: { onImport?: () => void; onOpenWalkthrough?: () => void }) {
   const { startScan, isScanning } = usePhotosStore();
+  const [showWalkthrough, setShowWalkthrough] = useState(false);
 
   const handleImport = async () => {
     if (onImport) { onImport(); return; }
@@ -13,6 +15,11 @@ export default function WelcomeScreen({ onImport }: { onImport?: () => void }) {
     if (folderPath) {
       await startScan(folderPath);
     }
+  };
+
+  const handleOpenWalkthrough = () => {
+    if (onOpenWalkthrough) { onOpenWalkthrough(); return; }
+    setShowWalkthrough(true);
   };
 
 
@@ -27,12 +34,20 @@ export default function WelcomeScreen({ onImport }: { onImport?: () => void }) {
           Your shoot's first pass, done in minutes.
         </p>
 
-        <button 
+        <button
           onClick={handleImport}
           className="bg-accent hover:bg-blue-600 text-white font-bold py-4 px-8 rounded-xl text-lg flex items-center justify-center gap-3 mx-auto transition-transform active:scale-95"
         >
           <span className="text-2xl">📁</span> Import Photo Folder
         </button>
+
+        <button
+          onClick={handleOpenWalkthrough}
+          className="mt-4 bg-transparent hover:bg-gray-800 text-gray-300 hover:text-white font-semibold py-2.5 px-6 rounded-xl text-sm flex items-center justify-center gap-2 mx-auto border border-gray-700 transition-colors"
+        >
+          <span className="text-lg">📖</span> App Walkthrough & Guide
+        </button>
+        <WalkthroughModal isOpen={showWalkthrough} onClose={() => setShowWalkthrough(false)} />
 
         <div className="grid grid-cols-3 gap-6 mt-16 text-left">
           <div className="flex flex-col items-center text-center">

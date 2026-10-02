@@ -139,7 +139,6 @@ export function applyTheme(themeId: string) {
 
   try {
     localStorage.setItem('firstpass_theme', theme.id)
-    localStorage.setItem('photo_culler_theme', theme.id)
   } catch {}
 }
 
@@ -165,6 +164,5 @@ export function getStoredCanvasBackdrop(): CanvasBackdropMode {
 export function setStoredCanvasBackdrop(mode: CanvasBackdropMode) {
   try {
     localStorage.setItem('firstpass_canvas_backdrop', mode)
-    localStorage.setItem('photo_culler_canvas_backdrop', mode)
   } catch {}
 }

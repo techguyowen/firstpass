@@ -45,7 +45,7 @@ export default function CullingActionBar({
   const [placement, setPlacement] = useState<TriagePlacement>(() => {
     if (controlledPlacement) return controlledPlacement
     try {
-      const saved = localStorage.getItem('photo_culler_triage_placement')
+      const saved = localStorage.getItem('firstpass_triage_placement') || localStorage.getItem('photo_culler_triage_placement')
       if (saved && ['bottom', 'side-left', 'side-right', 'floating', 'sidebar'].includes(saved)) {
         return saved as TriagePlacement
       }
@@ -56,7 +56,7 @@ export default function CullingActionBar({
   const [scale, setScale] = useState<TriageScale>(() => {
     if (controlledScale) return controlledScale
     try {
-      const saved = localStorage.getItem('photo_culler_triage_scale')
+      const saved = localStorage.getItem('firstpass_triage_scale') || localStorage.getItem('photo_culler_triage_scale')
       if (saved && ['compact', 'standard', 'large'].includes(saved)) {
         return saved as TriageScale
       }
@@ -66,7 +66,7 @@ export default function CullingActionBar({
 
   const [floatPos, setFloatPos] = useState<{ x: number; y: number }>(() => {
     try {
-      const saved = localStorage.getItem('photo_culler_triage_hud_pos')
+      const saved = localStorage.getItem('firstpass_triage_hud_pos') || localStorage.getItem('photo_culler_triage_hud_pos')
       if (saved) {
         const parsed = JSON.parse(saved)
         if (typeof parsed.x === 'number' && typeof parsed.y === 'number') {
@@ -85,12 +85,12 @@ export default function CullingActionBar({
 
   const [floatWidth, setFloatWidth] = useState<number | undefined>(() => {
     try {
-      const saved = localStorage.getItem('photo_culler_triage_float_width')
+      const saved = localStorage.getItem('firstpass_triage_float_width') || localStorage.getItem('photo_culler_triage_float_width')
       if (saved) {
         const val = parseFloat(saved)
         if (isNaN(val)) {
           try {
-            localStorage.removeItem('photo_culler_triage_float_width')
+            localStorage.removeItem('firstpass_triage_float_width')
           } catch {}
           return undefined
         }
@@ -149,7 +149,7 @@ export default function CullingActionBar({
       }
       setFloatPos(next)
       try {
-        localStorage.setItem('photo_culler_triage_hud_pos', JSON.stringify(next))
+        localStorage.setItem('firstpass_triage_hud_pos', JSON.stringify(next))
       } catch {}
     }
     window.addEventListener('triage:center', onCenter)
@@ -159,7 +159,7 @@ export default function CullingActionBar({
   const handleUpdatePlacement = (newPlacement: TriagePlacement) => {
     setPlacement(newPlacement)
     try {
-      localStorage.setItem('photo_culler_triage_placement', newPlacement)
+      localStorage.setItem('firstpass_triage_placement', newPlacement)
     } catch {}
     if (onSetPlacement) onSetPlacement(newPlacement)
     setMenuAnchor(null)
@@ -168,14 +168,14 @@ export default function CullingActionBar({
   const handleUpdateScale = (newScale: TriageScale) => {
     setScale(newScale)
     try {
-      localStorage.setItem('photo_culler_triage_scale', newScale)
+      localStorage.setItem('firstpass_triage_scale', newScale)
     } catch {}
     if (onSetScale) onSetScale(newScale)
     const presetWidth =
       newScale === 'compact' ? 240 : newScale === 'large' ? MAX_FLOAT_WIDTH : 420
     setFloatWidth(presetWidth)
     try {
-      localStorage.setItem('photo_culler_triage_float_width', String(presetWidth))
+      localStorage.setItem('firstpass_triage_float_width', String(presetWidth))
     } catch {}
     setMenuAnchor(null)
   }
@@ -329,7 +329,7 @@ export default function CullingActionBar({
             const newPos = { x: Math.round(clampedX), y: Math.round(clampedY) }
             setFloatPos(newPos)
             try {
-              localStorage.setItem('photo_culler_triage_hud_pos', JSON.stringify(newPos))
+              localStorage.setItem('firstpass_triage_hud_pos', JSON.stringify(newPos))
             } catch {}
           }
         }
@@ -365,7 +365,7 @@ export default function CullingActionBar({
       setFloatWidth((finalW) => {
         if (finalW) {
           try {
-            localStorage.setItem('photo_culler_triage_float_width', String(finalW))
+            localStorage.setItem('firstpass_triage_float_width', String(finalW))
           } catch {}
         }
         return finalW
@@ -737,7 +737,7 @@ export default function CullingActionBar({
                       setFloatWidth(undefined)
                       setMenuAnchor(null)
                       try {
-                        localStorage.removeItem('photo_culler_triage_float_width')
+                        localStorage.removeItem('firstpass_triage_float_width')
                       } catch {}
                     }}
                     className="w-full text-left px-3 py-1.5 hover:bg-white/10 flex items-center gap-2 text-neutral-300 cursor-pointer border-t border-neutral-800"

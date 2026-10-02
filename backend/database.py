@@ -103,6 +103,12 @@ def auto_migrate(db_engine):
                 for col_name, col_type in cols_to_add:
                     if col_name not in existing_cols:
                         conn.exec_driver_sql(f"ALTER TABLE photos ADD COLUMN {col_name} {col_type}")
+                for col_name, col_type in [
+                    ("group_similarity_score", "REAL"),
+                    ("group_type", "VARCHAR"),
+                ]:
+                    if col_name not in existing_cols:
+                        conn.exec_driver_sql(f"ALTER TABLE photos ADD COLUMN {col_name} {col_type}")
                 conn.exec_driver_sql("UPDATE photos SET is_vip_focused = 0 WHERE is_analyzed = 0 OR face_count = 0 OR face_count IS NULL")
                 
                 # Performance Indexes for massive shoots (5,000+ photos)

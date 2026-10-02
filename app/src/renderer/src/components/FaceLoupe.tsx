@@ -1,17 +1,19 @@
 import React, { useEffect, useState } from 'react'
 import {
-  Eye, EyeOff, Users, ZoomIn, Smile, Crown, ExternalLink,
-  PanelBottom, X, Minimize2, Maximize2, Sliders, Check, Anchor
+  EyeOff, Users, ZoomIn, Smile, Crown, ExternalLink,
+  PanelBottom, X, Minimize2, Maximize2, Sliders, Check, Anchor, AlertTriangle
 } from 'lucide-react'
 import { api } from '../api/client'
 import type { FaceCrop } from '../types/photo'
+import type { FaceSelectHandler, FaceSelectionMeta } from '../utils/faceZoom'
+import { playVipChime } from '../utils/audioFeedback'
 import toast from 'react-hot-toast'
 import DraggablePanel from './DraggablePanel'
 import clsx from 'clsx'
 
 export interface FaceLoupeProps {
   photoId: number
-  onSelectFace?: (box: [number, number, number, number], faceIndex?: number, isVip?: boolean) => void
+  onSelectFace?: FaceSelectHandler
   onResetZoom?: () => void
   zoomLevel?: number
   isFloating?: boolean
@@ -25,7 +27,7 @@ export interface FaceLoupeProps {
 
 export function getUnpinnedVipKeys(): Set<string> {
   try {
-    const raw = localStorage.getItem('photo_culler_unpinned_vips')
+    const raw = localStorage.getItem('firstpass_unpinned_vips') || localStorage.getItem('photo_culler_unpinned_vips')
     if (raw) return new Set(JSON.parse(raw))
   } catch {}
   return new Set()
@@ -33,7 +35,7 @@ export function getUnpinnedVipKeys(): Set<string> {
 
 export function saveUnpinnedVipKeys(keys: Set<string>): void {
   try {
-    localStorage.setItem('photo_culler_unpinned_vips', JSON.stringify(Array.from(keys)))
+    localStorage.setItem('firstpass_unpinned_vips', JSON.stringify(Array.from(keys)))
   } catch {}
 }
 
@@ -53,6 +55,7 @@ export async function toggleVipFaceStatus(photoId: number, faceIndex: number, cu
       toast(`Face #${faceIndex + 1} unpinned from VIP`, { icon: '⚪' })
     } else {
       await api.addVipFace(photoId, faceIndex, `VIP Face ${faceIndex + 1}`)
+      playVipChime()
       toast.success(`Face #${faceIndex + 1} pinned as VIP ⭐`)
     }
     return willBeVip
@@ -66,6 +69,15 @@ export async function toggleVipFaceStatus(photoId: number, faceIndex: number, cu
     saveUnpinnedVipKeys(unpinnedKeys)
     toast.error(willBeVip ? 'Could not pin VIP' : 'Could not unpin VIP')
     return currentIsVip
+  }
+}
+
+// Detection coordinate-space dims ride along so the zoom target can
+// normalize boxes that were detected on a downscaled array.
+export function faceSelectionMeta(face: FaceCrop): FaceSelectionMeta {
+  return {
+    detWidth: face.det_width ?? null,
+    detHeight: face.det_height ?? null,
   }
 }
 
@@ -181,12 +193,12 @@ export const FaceLoupe: React.FC<FaceLoupeProps> = ({
         e.preventDefault()
         const nextIdx = selectedIdx === null ? 0 : (selectedIdx + 1) % faces.length
         setSelectedIdx(nextIdx)
-        if (onSelectFace && faces[nextIdx]) onSelectFace(faces[nextIdx].box, faces[nextIdx].index, faces[nextIdx].is_vip)
+        if (onSelectFace && faces[nextIdx]) onSelectFace(faces[nextIdx].box, faces[nextIdx].index, faces[nextIdx].is_vip, faceSelectionMeta(faces[nextIdx]))
       } else if (e.key === '[' || e.key === '{') {
         e.preventDefault()
         const prevIdx = selectedIdx === null ? faces.length - 1 : (selectedIdx - 1 + faces.length) % faces.length
         setSelectedIdx(prevIdx)
-        if (onSelectFace && faces[prevIdx]) onSelectFace(faces[prevIdx].box, faces[prevIdx].index, faces[prevIdx].is_vip)
+        if (onSelectFace && faces[prevIdx]) onSelectFace(faces[prevIdx].box, faces[prevIdx].index, faces[prevIdx].is_vip, faceSelectionMeta(faces[prevIdx]))
       }
     }
     window.addEventListener('keydown', handleKeyDown)
@@ -232,6 +244,7 @@ export const FaceLoupe: React.FC<FaceLoupeProps> = ({
         saveUnpinnedVipKeys(unpinnedKeys)
 
         const res = await api.addVipFace(photoId, face.index, `VIP Face ${face.index + 1}`)
+        playVipChime()
         setFaces(prev => prev.map(f => f.index === face.index ? { ...f, is_vip: true, vip_id: res.id } : f))
         toast.success(`Face #${face.index + 1} pinned as VIP ⭐`)
       }
@@ -259,7 +272,7 @@ export const FaceLoupe: React.FC<FaceLoupeProps> = ({
       if (onResetZoom) onResetZoom()
     } else {
       setSelectedIdx(face.index)
-      if (onSelectFace) onSelectFace(face.box, face.index, face.is_vip)
+      if (onSelectFace) onSelectFace(face.box, face.index, face.is_vip, faceSelectionMeta(face))
     }
   }
 
@@ -278,7 +291,7 @@ export const FaceLoupe: React.FC<FaceLoupeProps> = ({
         ? "grid grid-cols-3 sm:grid-cols-4 gap-2 pt-1"
         : "h-full flex items-center overflow-x-auto overflow-y-hidden py-1 scrollbar-thin scrollbar-thumb-neutral-700"
     )}>
-      {faces.map((face) => {
+      {faces.map((face, mapIdx) => {
         const isSelected = selectedIdx === face.index && zoomLevel > 1
         const isTogglingThis = togglingVipIndex === face.index
         return (
@@ -351,32 +364,47 @@ export const FaceLoupe: React.FC<FaceLoupeProps> = ({
               )}
             </div>
 
-            {/* Corner 2: Eye Status Badge (Top-Right) */}
-            <div
-              className={clsx(
-                "absolute top-1 right-1 p-0.5 rounded-full text-[10px] z-10 shadow-sm",
-                face.has_closed_eyes
-                  ? "bg-rose-500/90 text-white animate-pulse"
-                  : "bg-emerald-500/90 text-white"
-              )}
-              title={face.has_closed_eyes ? "Eyes closed or blinking detected" : "Eyes open and sharp"}
-            >
-              {face.has_closed_eyes ? (
-                <EyeOff className="w-3 h-3" />
-              ) : (
-                <Eye className="w-3 h-3" />
-              )}
-            </div>
-
-            {/* Smile Badge (if smiling) */}
-            {face.is_smiling && (
-              <div
-                className="absolute bottom-5 left-1 p-0.5 rounded-full bg-amber-500/90 text-neutral-950 text-[10px] z-10 shadow"
-                title={`Smiling (${Math.round(face.smile_score || 0)}%)`}
-              >
-                <Smile className="w-3 h-3 stroke-[2.5]" />
-              </div>
-            )}
+            {/* AI Diagnostic Micro-Pills (Top-Right): focus state + smile */}
+            {(() => {
+              const isBlink = Boolean(face.has_closed_eyes || face.blink_detected)
+              const focusScore = face.blur_score ?? face.sharpness ?? 80
+              const isSharp = focusScore >= 60
+              const isSmiling = Boolean(face.is_smiling || (face.smile_score && face.smile_score > 35))
+              return (
+                <div className="absolute top-1 right-1 z-10 flex flex-col items-end gap-0.5">
+                  {isBlink ? (
+                    <span
+                      className="flex items-center gap-0.5 rounded-full bg-black/70 backdrop-blur-md px-1 py-0.5 text-[9px] font-bold text-rose-300 shadow animate-pulse"
+                      title="Eyes closed or blinking detected"
+                    >
+                      <EyeOff className="w-2.5 h-2.5" /> Blink
+                    </span>
+                  ) : isSharp ? (
+                    <span
+                      className="flex items-center gap-0.5 rounded-full bg-black/70 backdrop-blur-md px-1 py-0.5 text-[9px] font-bold text-emerald-300 shadow"
+                      title={`Eyes open and sharp (${Math.round(focusScore)})`}
+                    >
+                      <Check className="w-2.5 h-2.5" /> Sharp
+                    </span>
+                  ) : (
+                    <span
+                      className="flex items-center gap-0.5 rounded-full bg-black/70 backdrop-blur-md px-1 py-0.5 text-[9px] font-bold text-amber-300 shadow"
+                      title={`Soft focus (${Math.round(focusScore)})`}
+                    >
+                      <AlertTriangle className="w-2.5 h-2.5" /> Soft
+                    </span>
+                  )}
+                  {isSmiling && (
+                    <span
+                      className="flex items-center gap-0.5 rounded-full bg-black/70 backdrop-blur-md px-1 py-0.5 text-[9px] font-bold text-sky-300 shadow"
+                      title={`Smiling (${Math.round(face.smile_score || 0)}%)`}
+                    >
+                      <Smile className="w-2.5 h-2.5" /> Smile
+                    </span>
+                  )}
+                </div>
+              )
+            })()}
 
             {/* Hover overlay hint */}
             <div className="absolute inset-0 bg-indigo-600/15 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity flex items-center justify-center">
@@ -389,7 +417,16 @@ export const FaceLoupe: React.FC<FaceLoupeProps> = ({
 
             {/* Subject Index & Sharpness Tag (Bottom Bar) */}
             <div className="absolute bottom-0 inset-x-0 bg-black/80 backdrop-blur-sm text-[9px] text-neutral-300 text-center py-0.5 font-mono flex items-center justify-around z-10">
-              <span className={isSelected ? 'text-indigo-300 font-bold' : ''}>#{face.index + 1}</span>
+              {mapIdx < 9 ? (
+                <kbd
+                  className="px-1 rounded bg-neutral-700/90 text-neutral-100 font-bold border border-neutral-600 leading-tight"
+                  title={`Press ${mapIdx + 1} to zoom to this face`}
+                >
+                  {mapIdx + 1}
+                </kbd>
+              ) : (
+                <span className={isSelected ? 'text-indigo-300 font-bold' : ''}>#{face.index + 1}</span>
+              )}
               {face.sharpness !== undefined && face.sharpness > 0 && (
                 <span className="text-neutral-400 font-normal">{Math.round(face.sharpness)}s</span>
               )}
@@ -567,7 +604,7 @@ export const FaceLoupe: React.FC<FaceLoupeProps> = ({
         <DraggablePanel
           title={`Face Loupe (${faces.length})`}
           icon={<Users size={13} className="text-indigo-400" />}
-          storageKey="photo_culler_faceloupe_pos"
+          storageKey="firstpass_faceloupe_pos"
           defaultPosition={{ x: 60, y: Math.max(60, window.innerHeight - 240) }}
           width={Math.max(300, Math.min(620, faces.length * 96 + 48))}
           isOpen={true}

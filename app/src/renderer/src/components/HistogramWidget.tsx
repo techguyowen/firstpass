@@ -261,7 +261,7 @@ export default function HistogramWidget({ imageUrl, isOpen, onClose, onDockToSid
     <DraggablePanel
       title="Histogram"
       icon={<Activity size={13} className="text-purple-400" />}
-      storageKey="photo_culler_histogram_pos"
+      storageKey="firstpass_histogram_pos"
       defaultPosition={{ x: 80, y: 70 }}
       width={310}
       isOpen={isOpen}

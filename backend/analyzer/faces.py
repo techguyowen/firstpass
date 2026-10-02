@@ -374,14 +374,19 @@ def analyze_faces(image: np.ndarray) -> dict:
 
         group_consistency_score = calculate_group_consistency(detected_faces)
         avg_smile_score = round(total_smile_score / max(1, len(detected_faces)), 1) if detected_faces else 0.0
-            
+
         return {
             "face_count": len(detected_faces),
             "has_closed_eyes": vip_closed_eyes if detected_faces else has_closed_eyes,
             "raw_has_closed_eyes": has_closed_eyes,
             "smile_score": avg_smile_score,
             "group_consistency_score": group_consistency_score,
-            "detected_faces": detected_faces
+            "detected_faces": detected_faces,
+            # Coordinate space of every box above (full-res loaded image dims,
+            # after the internal downscale is mapped back). Persisted per face
+            # so zoom targets can normalize exactly.
+            "det_width": orig_w,
+            "det_height": orig_h,
         }
     except Exception as e:
         print(f"Error in analyze_faces: {e}")
@@ -390,5 +395,7 @@ def analyze_faces(image: np.ndarray) -> dict:
             "has_closed_eyes": False,
             "smile_score": 0.0,
             "group_consistency_score": None,
-            "detected_faces": []
+            "detected_faces": [],
+            "det_width": None,
+            "det_height": None,
         }

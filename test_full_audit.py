@@ -19,7 +19,9 @@ from pathlib import Path
 
 BASE_URL = "http://localhost:58765/api"
 
-_token_file = Path.home() / ".photo-culler" / ".session_token"
+_token_file = Path.home() / ".firstpass" / ".session_token"
+if not _token_file.exists():
+    _token_file = Path.home() / ".photo-culler" / ".session_token"
 _token = _token_file.read_text(encoding="utf-8").strip() if _token_file.exists() else ""
 _session = requests.Session()
 if _token:

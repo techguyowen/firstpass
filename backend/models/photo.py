@@ -42,6 +42,8 @@ class Photo(Base):
     
     # Grouping & Story Arc
     duplicate_group_id = Column(String, nullable=True, index=True)
+    group_similarity_score = Column(Float, nullable=True)  # 0.0-1.0 similarity to group representative
+    group_type = Column(String, nullable=True)  # 'burst' | 'variation' | 'similar'
     burst_group_id = Column(String, nullable=True, index=True)
     is_burst_leader = Column(Boolean, default=False, index=True)
     scene_id = Column(String, nullable=True, index=True)

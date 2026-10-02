@@ -221,6 +221,8 @@ interface MenuState {
   isBottomCollapsed: boolean
   collapseBursts: boolean
   activeWorkspace?: string
+  lockZoom: boolean
+  lockTurn: boolean
 }
 
 let currentMenuState: MenuState = {
@@ -239,7 +241,9 @@ let currentMenuState: MenuState = {
   showCullingBar: true,
   isBottomCollapsed: false,
   collapseBursts: true,
-  activeWorkspace: 'default-studio'
+  activeWorkspace: 'default-studio',
+  lockZoom: false,
+  lockTurn: false
 }
 
 function setupApplicationMenu(): void {
@@ -250,6 +254,7 @@ function setupApplicationMenu(): void {
 
   const isReview = Boolean(currentMenuState.currentRoute && currentMenuState.currentRoute.startsWith('/review'))
   const isCompare = Boolean(currentMenuState.currentRoute && currentMenuState.currentRoute.startsWith('/compare'))
+  const isSettings = Boolean(currentMenuState.currentRoute && currentMenuState.currentRoute.startsWith('/settings'))
 
   const template: Electron.MenuItemConstructorOptions[] = [
     ...(isMac
@@ -348,39 +353,44 @@ function setupApplicationMenu(): void {
         {
           label: 'Undo Rating Change',
           accelerator: 'CmdOrCtrl+Z',
+          enabled: !isSettings,
           click: () => send('undo')
         },
         {
           label: 'Redo Rating Change',
           accelerator: isMac ? 'Shift+Cmd+Z' : 'Ctrl+Y',
+          enabled: !isSettings,
           click: () => send('redo')
         },
         { type: 'separator' as const },
         {
           label: 'Select All Photos',
           accelerator: 'CmdOrCtrl+A',
+          enabled: !isSettings,
           click: () => send('select-all')
         },
         {
           label: 'Deselect All',
           accelerator: 'CmdOrCtrl+D',
+          enabled: !isSettings,
           click: () => send('deselect-all')
         },
         {
           label: 'Invert Selection',
           accelerator: 'CmdOrCtrl+Shift+I',
+          enabled: !isSettings,
           click: () => send('invert-selection')
         },
         { type: 'separator' as const },
         {
           label: 'Auto-Pick Best Duplicates',
+          enabled: !isSettings,
           click: () => send('auto-pick-duplicates')
         },
         { type: 'separator' as const },
         { role: 'cut' as const },
         { role: 'copy' as const },
         { role: 'paste' as const },
-        { role: 'selectAll' as const },
         ...(!isMac
           ? [
               { type: 'separator' as const },
@@ -399,25 +409,30 @@ function setupApplicationMenu(): void {
         {
           label: 'Accept / Keep Photo (A / ~)',
           accelerator: 'CmdOrCtrl+Enter',
+          enabled: !isSettings,
           click: () => send('rate-accept')
         },
         {
           label: 'Reject Photo (R / 2)',
           accelerator: 'CmdOrCtrl+Backspace',
+          enabled: !isSettings,
           click: () => send('rate-reject')
         },
         {
           label: 'Reset to Pending (U / 0)',
           accelerator: 'CmdOrCtrl+U',
+          enabled: !isSettings,
           click: () => send('rate-pending')
         },
         {
           label: 'Skip to Next Photo (Space)',
+          enabled: !isSettings,
           click: () => send('rate-skip')
         },
         {
           label: 'Toggle Tag (\\ / T)',
           accelerator: 'CmdOrCtrl+T',
+          enabled: !isSettings,
           click: () => send('toggle-tag')
         },
         { type: 'separator' as const },
@@ -425,33 +440,39 @@ function setupApplicationMenu(): void {
           label: 'Auto-Advance on Rating',
           type: 'checkbox' as const,
           checked: currentMenuState.autoAdvance,
+          enabled: !isSettings,
           click: () => send('toggle-auto-advance')
         },
         { type: 'separator' as const },
         {
           label: 'Previous Photograph',
           accelerator: 'Left',
+          enabled: !isSettings,
           click: () => send('prev-photo')
         },
         {
           label: 'Next Photograph',
           accelerator: 'Right',
+          enabled: !isSettings,
           click: () => send('next-photo')
         },
         {
           label: 'First Photograph',
           accelerator: 'Home',
+          enabled: !isSettings,
           click: () => send('first-photo')
         },
         {
           label: 'Last Photograph',
           accelerator: 'End',
+          enabled: !isSettings,
           click: () => send('last-photo')
         },
         { type: 'separator' as const },
         {
           label: 'Re-analyze Active Photo with AI',
           accelerator: 'CmdOrCtrl+R',
+          enabled: !isSettings,
           click: () => send('reanalyze-active')
         },
         {
@@ -462,13 +483,26 @@ function setupApplicationMenu(): void {
         { type: 'separator' as const },
         {
           label: 'Identify VIP Faces...',
+          enabled: !isSettings,
           click: () => send('open-vip-modal')
         },
         {
-          label: 'Stack & Collapse Burst Groups',
+          label: 'Stack && Collapse Burst Groups',
           type: 'checkbox' as const,
           checked: currentMenuState.collapseBursts,
+          enabled: !isSettings,
           click: () => send('toggle-burst-stacking')
+        },
+        { type: 'separator' as const },
+        {
+          label: 'Cull to Target Quota...',
+          enabled: !isSettings,
+          click: () => send('open-cull-to-target')
+        },
+        {
+          label: 'Re-classify Duplicates (Burst vs Variation)',
+          enabled: !isSettings,
+          click: () => send('reclassify-duplicates')
         }
       ]
     },
@@ -497,8 +531,15 @@ function setupApplicationMenu(): void {
           click: () => send('navigate-compare')
         },
         {
-          label: 'Settings & AI Calibration',
+          label: 'Survey Mode (Rapid Rejection Review)',
           accelerator: 'CmdOrCtrl+4',
+          type: 'radio' as const,
+          checked: currentMenuState.currentRoute === '/survey',
+          click: () => send('navigate-survey')
+        },
+        {
+          label: 'Settings && AI Calibration',
+          accelerator: 'CmdOrCtrl+5',
           type: 'radio' as const,
           checked: currentMenuState.currentRoute.startsWith('/settings'),
           click: () => send('navigate-settings')
@@ -507,30 +548,70 @@ function setupApplicationMenu(): void {
         {
           label: 'Fit to Screen',
           accelerator: 'CmdOrCtrl+0',
+          enabled: !isSettings,
           click: () => send('zoom-fit')
         },
         {
           label: 'Zoom 100% (1:1 Pixels) (Z)',
           accelerator: 'CmdOrCtrl+Alt+0',
+          enabled: !isSettings,
           click: () => send('zoom-100')
         },
         {
           label: 'Zoom 200% (Detail)',
+          enabled: !isSettings,
           click: () => send('zoom-200')
         },
         {
           label: 'Zoom In',
           accelerator: 'CmdOrCtrl+=',
+          enabled: !isSettings,
           click: () => send('zoom-in')
         },
         {
           label: 'Zoom Out',
           accelerator: 'CmdOrCtrl+-',
+          enabled: !isSettings,
           click: () => send('zoom-out')
         },
         {
           label: 'Zoom to 100% / 250% (Z)',
+          enabled: !isSettings,
           click: () => send('toggle-zoom')
+        },
+        {
+          label: 'Lock Zoom Between Photos',
+          type: 'checkbox' as const,
+          checked: Boolean(currentMenuState.lockZoom),
+          accelerator: 'CmdOrCtrl+Shift+L',
+          enabled: !isSettings,
+          click: () => send('toggle-lock-zoom')
+        },
+        { type: 'separator' as const },
+        {
+          label: 'Rotate 90° Clockwise',
+          accelerator: 'CmdOrCtrl+]',
+          enabled: !isSettings,
+          click: () => send('rotate-cw')
+        },
+        {
+          label: 'Rotate 90° Counter-Clockwise',
+          accelerator: 'CmdOrCtrl+[',
+          enabled: !isSettings,
+          click: () => send('rotate-ccw')
+        },
+        {
+          label: 'Reset Rotation',
+          enabled: !isSettings,
+          click: () => send('rotate-reset')
+        },
+        {
+          label: 'Lock Turn Between Photos',
+          type: 'checkbox' as const,
+          checked: Boolean(currentMenuState.lockTurn),
+          accelerator: 'CmdOrCtrl+Shift+T',
+          enabled: !isSettings,
+          click: () => send('toggle-lock-turn')
         },
         ...(isCompare
           ? [
@@ -557,6 +638,16 @@ function setupApplicationMenu(): void {
                     accelerator: 'CmdOrCtrl+Shift+M',
                     click: () => send('match-all')
                   }
+                ]
+              },
+              { type: 'separator' as const },
+              {
+                label: 'Multi-Up Layout',
+                submenu: [
+                  { label: '2-Up (Side-by-Side)', click: () => send('set-compare-layout', '2-up') },
+                  { label: '3-Up (Side-by-Side)', click: () => send('set-compare-layout', '3-up') },
+                  { label: '4-Up (2×2 Quad Grid)', click: () => send('set-compare-layout', '4-up-grid') },
+                  { label: '4-Up (1×4 Landscape Row)', click: () => send('set-compare-layout', '4-up-landscape') }
                 ]
               }
             ]
@@ -597,13 +688,13 @@ function setupApplicationMenu(): void {
                 ]
               },
               {
-                label: 'Highlight & Shadow Clipping Overlay (E)',
+                label: 'Highlight && Shadow Clipping Overlay (E)',
                 type: 'checkbox' as const,
                 checked: currentMenuState.showClipping,
                 click: () => send('toggle-clipping')
               },
               {
-                label: 'RGB & Luminance Histogram (H)',
+                label: 'RGB && Luminance Histogram (H)',
                 submenu: [
                   {
                     label: 'Dock to Inspector Sidebar',
@@ -786,13 +877,13 @@ function setupApplicationMenu(): void {
                     click: () => send('set-workspace', 'speed-triage')
                   },
                   {
-                    label: 'Focus & Faces',
+                    label: 'Focus && Faces',
                     type: 'radio' as const,
                     checked: currentMenuState.activeWorkspace === 'focus-inspection',
                     click: () => send('set-workspace', 'focus-inspection')
                   },
                   {
-                    label: 'Technical & EXIF Studio',
+                    label: 'Technical && EXIF Studio',
                     type: 'radio' as const,
                     checked: currentMenuState.activeWorkspace === 'technical-exif',
                     click: () => send('set-workspace', 'technical-exif')
@@ -810,7 +901,7 @@ function setupApplicationMenu(): void {
               },
               { type: 'separator' as const },
               {
-                label: 'Panels & Windows',
+                label: 'Panels && Windows',
                 submenu: [
             {
               label: 'Filmstrip',
@@ -861,12 +952,6 @@ function setupApplicationMenu(): void {
             },
             { type: 'separator' as const },
             {
-              label: 'Inspector Sidebar (Tab)',
-              type: 'checkbox' as const,
-              checked: currentMenuState.inspectorOpen,
-              click: () => send('toggle-inspector')
-            },
-            {
               label: 'Bottom Dock',
               submenu: [
                 {
@@ -901,7 +986,7 @@ function setupApplicationMenu(): void {
               ]
             },
             {
-              label: 'RGB & Luminance Histogram (H)',
+              label: 'RGB && Luminance Histogram (H)',
               submenu: [
                 {
                   label: 'Dock to Inspector Sidebar',
@@ -1004,6 +1089,10 @@ function setupApplicationMenu(): void {
           label: 'Keyboard Shortcuts Cheatsheet',
           accelerator: 'CmdOrCtrl+/',
           click: () => send('open-shortcuts')
+        },
+        {
+          label: 'Interactive Walkthrough Guide...',
+          click: () => send('open-walkthrough')
         },
         {
           label: 'Check for Updates...',

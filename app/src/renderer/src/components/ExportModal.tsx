@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { FolderUp, Copy, Trash2, CheckCircle2, X, Folder, Sparkles } from 'lucide-react'
+import { FolderUp, Copy, Trash2, CheckCircle2, X, Folder, Sparkles, AlertTriangle, Target } from 'lucide-react'
 import { api } from '../api/client'
 import { usePhotosStore } from '../store/photosStore'
 import toast from 'react-hot-toast'
@@ -44,6 +44,20 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
   const [exporting, setExporting] = useState(false)
   const [exportProgress, setExportProgress] = useState<JobStatus | null>(null)
   const [isAutoPickingDuplicates, setIsAutoPickingDuplicates] = useState(false)
+  const [deliveryQuota, setDeliveryQuota] = useState<number | null>(null)
+
+  // Load the delivery target quota for the pre-flight quota progress row.
+  useEffect(() => {
+    let cancelled = false
+    api.getSettings()
+      .then(s => {
+        if (!cancelled) setDeliveryQuota(s.target_delivery_count ?? null)
+      })
+      .catch(() => {
+        if (!cancelled) setDeliveryQuota(null)
+      })
+    return () => { cancelled = true }
+  }, [])
 
   const handleAutoPickDuplicates = async () => {
     setIsAutoPickingDuplicates(true)
@@ -66,6 +80,14 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
   else if (scope === 'tagged_selected') targetPhotos = taggedSelectedPhotos
   else if (scope === 'rejected') targetPhotos = rejectedPhotos
   else targetPhotos = selectedPhotos
+
+  // Pre-flight delivery safety inspection of the current export batch.
+  const blinkCount = targetPhotos.filter(p => p.has_closed_eyes).length
+  const blurryCount = targetPhotos.filter(p => p.is_blurry).length
+  const flaggedPhotos = targetPhotos.filter(p => p.has_closed_eyes || p.is_blurry)
+  const hasFlags = blinkCount > 0 || blurryCount > 0
+  const quotaTarget = deliveryQuota && deliveryQuota > 0 ? deliveryQuota : null
+  const quotaPct = quotaTarget ? Math.min(100, Math.round((acceptedPhotos.length / quotaTarget) * 100)) : null
 
   const handleSelectFolder = async () => {
     try {
@@ -157,6 +179,71 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
             <p className="text-xs text-gray-400">Save keepers or clean up rejected files</p>
           </div>
         </div>
+
+        {/* Automated Pre-Flight Sanity Card */}
+        {hasFlags ? (
+          <div className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-amber-200">
+                  ⚠️ Pre-Flight Check: {blinkCount} blink{blinkCount === 1 ? '' : 's'}, {blurryCount} blurry photo{blurryCount === 1 ? '' : 's'} in selected export batch
+                </p>
+                <p className="text-[11px] text-amber-200/70 mt-0.5">
+                  Review these before delivery — flagged keepers often need a swap.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 mt-2.5 overflow-x-auto pb-0.5">
+              {flaggedPhotos.slice(0, 8).map(p => (
+                <img
+                  key={p.id}
+                  src={api.getThumbnailUrl(p.id)}
+                  alt={p.filename}
+                  title={`${p.filename}${p.has_closed_eyes ? ' · blink' : ''}${p.is_blurry ? ' · blurry' : ''}`}
+                  className="w-11 h-11 rounded-lg object-cover border border-amber-500/50 flex-shrink-0"
+                  loading="lazy"
+                  draggable={false}
+                />
+              ))}
+              {flaggedPhotos.length > 8 && (
+                <span className="text-[11px] font-semibold text-amber-300 flex-shrink-0 pl-1">
+                  +{flaggedPhotos.length - 8} more
+                </span>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="mb-4 rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+              <p className="text-xs font-semibold text-emerald-200">
+                ✓ Pre-Flight Check: 0 blinks or severe blur detected in this export batch
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Delivery target quota progress */}
+        {quotaTarget !== null && quotaPct !== null && (
+          <div className="mb-4 rounded-xl border border-gray-800 bg-gray-950 p-3">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs font-semibold text-gray-300 flex items-center gap-1.5">
+                <Target className="w-3.5 h-3.5 text-indigo-400" />
+                Delivery target
+              </span>
+              <span className="text-xs font-mono text-gray-400">
+                {acceptedPhotos.length} / {quotaTarget} keepers ({quotaPct}%)
+              </span>
+            </div>
+            <div className="h-1.5 w-full rounded-full bg-gray-800 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-300 ${quotaPct >= 100 ? 'bg-emerald-500' : 'bg-indigo-500'}`}
+                style={{ width: `${quotaPct}%` }}
+              />
+            </div>
+          </div>
+        )}
 
         <div className="space-y-4">
           {/* Duplicates Auto Pick */}

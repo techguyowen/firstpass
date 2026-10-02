@@ -16,6 +16,7 @@ import InspectorBox from './InspectorBox'
 import FaceLoupe from './FaceLoupe'
 import { HistogramChart } from './HistogramWidget'
 import CullingActionBar, { TriagePlacement } from './CullingActionBar'
+import type { FaceSelectHandler } from '../utils/faceZoom'
 import { dockDragManager, DragState, DropTarget } from '../utils/dockDragManager'
 
 export type DockMode = 'right' | 'left' | 'floating' | 'collapsed'
@@ -51,7 +52,7 @@ export interface ScorePanelProps {
   dockMode?: DockMode
   onSetDockMode?: (mode: DockMode) => void
   isFloating?: boolean
-  onSelectFace?: (box: [number, number, number, number]) => void
+  onSelectFace?: FaceSelectHandler
   onResetZoom?: () => void
   zoomLevel?: number
   faceLoupeMode?: 'sidebar' | 'bottom' | 'floating' | 'hidden'
@@ -165,6 +166,37 @@ export function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+/** Photo-level AI diagnostic micro-pills mirroring the per-face badges in FaceLoupe. */
+export function PhotoFaceMicroPills({ photo }: { photo: Photo }) {
+  if (!photo.face_count || photo.face_count <= 0) return null
+  const isBlink = Boolean(photo.has_closed_eyes)
+  const focusScore = photo.blur_score ?? 80
+  const isSharp = focusScore >= 60
+  const isSmiling = Boolean(photo.smile_score !== undefined && photo.smile_score !== null && photo.smile_score > 35)
+  return (
+    <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+      {isBlink ? (
+        <span className="flex items-center gap-0.5 rounded-full bg-black/70 backdrop-blur-md px-1.5 py-0.5 text-[9px] font-bold text-rose-300 border border-rose-500/30">
+          <EyeOff size={10} /> Blink
+        </span>
+      ) : isSharp ? (
+        <span className="flex items-center gap-0.5 rounded-full bg-black/70 backdrop-blur-md px-1.5 py-0.5 text-[9px] font-bold text-emerald-300 border border-emerald-500/30">
+          <Check size={10} /> Sharp
+        </span>
+      ) : (
+        <span className="flex items-center gap-0.5 rounded-full bg-black/70 backdrop-blur-md px-1.5 py-0.5 text-[9px] font-bold text-amber-300 border border-amber-500/30">
+          <AlertTriangle size={10} /> Soft
+        </span>
+      )}
+      {isSmiling && (
+        <span className="flex items-center gap-0.5 rounded-full bg-black/70 backdrop-blur-md px-1.5 py-0.5 text-[9px] font-bold text-sky-300 border border-sky-500/30">
+          <Smile size={10} /> Smile
+        </span>
+      )}
+    </div>
+  )
+}
+
 export function checkCameraShake(shutter?: string | null, focal?: string | null): boolean {
   if (!shutter || !focal) return false
   try {
@@ -225,14 +257,12 @@ function getScoreStorage(key: string): string | null {
 function setScoreStorage(key: string, value: string): void {
   try {
     localStorage.setItem(`firstpass_${key}`, value)
-    localStorage.setItem(`photo_culler_${key}`, value)
   } catch {}
 }
 
 function removeScoreStorage(key: string): void {
   try {
     localStorage.removeItem(`firstpass_${key}`)
-    localStorage.removeItem(`photo_culler_${key}`)
   } catch {}
 }
 
@@ -790,6 +820,8 @@ export default function ScorePanel({
         <Users size={14} className="text-indigo-400" />
         <span>{photo.face_count === null ? 'Analysis pending' : photo.face_count === 0 ? 'No faces detected' : `${photo.face_count} subject face${photo.face_count > 1 ? 's' : ''}`}</span>
       </div>
+
+      <PhotoFaceMicroPills photo={photo} />
 
       {photo.has_closed_eyes && (
         <div className="flex items-center gap-1.5 text-purple-400 text-xs mt-1.5 bg-purple-950/30 border border-purple-800/30 px-2 py-1 rounded-md">
@@ -1720,7 +1752,7 @@ export function InspectorModuleContent({
   moduleId: string
   photo: Photo
   compact?: boolean
-  onSelectFace?: (box: [number, number, number, number]) => void
+  onSelectFace?: FaceSelectHandler
   onResetZoom?: () => void
   zoomLevel?: number
   cullingBarVisible?: boolean
@@ -1850,6 +1882,7 @@ export function InspectorModuleContent({
           <Users size={14} className="text-indigo-400" />
           <span>{photo.face_count === null ? 'Analysis pending' : photo.face_count === 0 ? 'No faces detected' : `${photo.face_count} subject face${photo.face_count > 1 ? 's' : ''}`}</span>
         </div>
+        <PhotoFaceMicroPills photo={photo} />
         {photo.face_count && photo.face_count > 0 && (
           <FaceLoupe
             photoId={photo.id}

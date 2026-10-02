@@ -2,7 +2,7 @@ from PIL import Image
 import imagehash
 import uuid
 from datetime import datetime
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Any
 
 def compute_hash(image_path: str) -> str:
     try:
@@ -155,6 +155,92 @@ def detect_burst_groups(
                 burst_map[bp["id"]] = gid
                 
     return burst_map, burst_leaders
+
+def compute_histogram_similarity(img1, img2) -> float:
+    """Compare two BGR images by their HSV histogram. Returns 0.0-1.0."""
+    import cv2
+    h1 = cv2.calcHist([cv2.cvtColor(img1, cv2.COLOR_BGR2HSV)], [0, 1], None, [50, 60], [0, 180, 0, 256])
+    h2 = cv2.calcHist([cv2.cvtColor(img2, cv2.COLOR_BGR2HSV)], [0, 1], None, [50, 60], [0, 180, 0, 256])
+    cv2.normalize(h1, h1, 0, 1, cv2.NORM_MINMAX)
+    cv2.normalize(h2, h2, 0, 1, cv2.NORM_MINMAX)
+    return float(cv2.compareHist(h1, h2, cv2.HISTCMP_CORREL))
+
+
+def compute_structural_similarity(img1, img2, size: int = 64) -> float:
+    """Downscale both images to `size` and compute normalised MSE similarity."""
+    import cv2
+    import numpy as np
+    s1 = cv2.resize(img1, (size, size)).astype(np.float32)
+    s2 = cv2.resize(img2, (size, size)).astype(np.float32)
+    mse = float(np.mean((s1 - s2) ** 2))
+    max_mse = 255.0 ** 2
+    return float(1.0 - mse / max_mse)
+
+
+def classify_duplicate_group(
+    photos_paths: List[Tuple[Any, str]]
+) -> List[Tuple[Any, float, str]]:
+    """
+    Given a list of (photo_db_obj, image_path) pairs from a duplicate group,
+    returns (photo_db_obj, similarity_score, group_type) for each.
+
+    group_type is one of:
+      'burst'     - very high similarity (>=0.97), auto-pick sharpest
+      'variation' - moderate similarity (0.80-0.97), requires human review
+      'similar'   - loose similarity (<0.80), same scene but distinct shots
+    """
+    if not photos_paths:
+        return []
+    if len(photos_paths) == 1:
+        return [(photos_paths[0][0], 1.0, 'burst')]
+
+    import cv2
+
+    THUMB_SIZE = 128
+    loaded: List[Tuple[Any, Any]] = []
+    for photo_obj, path in photos_paths:
+        try:
+            img = cv2.imread(path)
+            if img is None:
+                from PIL import ImageOps
+                import numpy as np
+                pil = ImageOps.exif_transpose(Image.open(path).convert('RGB'))
+                img = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
+            if img is not None:
+                img = cv2.resize(img, (THUMB_SIZE, THUMB_SIZE))
+            loaded.append((photo_obj, img))
+        except Exception:
+            loaded.append((photo_obj, None))
+
+    ref_img = next((img for _, img in loaded if img is not None), None)
+    if ref_img is None:
+        return [(p, 1.0, 'burst') for p, _ in photos_paths]
+
+    scores: List[float] = []
+    for _photo_obj, img in loaded:
+        if img is None:
+            scores.append(0.9)  # assume moderate similarity if can't load
+            continue
+        hist_sim = compute_histogram_similarity(ref_img, img)
+        struct_sim = compute_structural_similarity(ref_img, img)
+        combined = 0.4 * hist_sim + 0.6 * struct_sim
+        scores.append(max(0.0, min(1.0, combined)))
+
+    # Reference photo always gets score 1.0
+    scores[0] = 1.0
+
+    # Classify group type based on min similarity across the group
+    # (the least similar pair determines the group type)
+    min_score = min(scores)
+    if min_score >= 0.97:
+        group_type = 'burst'
+    elif min_score >= 0.80:
+        group_type = 'variation'
+    else:
+        group_type = 'similar'
+
+    return [(photo_obj, scores[i], group_type) for i, (photo_obj, _) in enumerate(loaded)]
+
 
 def detect_scenes(
     photos: List[dict],

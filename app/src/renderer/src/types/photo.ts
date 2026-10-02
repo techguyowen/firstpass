@@ -36,6 +36,8 @@ export interface Photo {
   
   // Grouping & Scene Chaptering
   duplicate_group_id: string | null;
+  group_similarity_score?: number | null;
+  group_type?: 'burst' | 'variation' | 'similar' | null;
   burst_group_id?: string | null;
   is_burst_leader?: boolean;
   scene_id?: string | null;
@@ -61,12 +63,19 @@ export interface FaceCrop {
   index: number;
   box: [number, number, number, number];
   has_closed_eyes: boolean;
+  /** Alias for has_closed_eyes from newer analyzers. */
+  blink_detected?: boolean;
   is_smiling?: boolean;
   smile_score?: number;
   sharpness?: number;
+  /** 0-100 per-face focus score from newer analyzers (mirrors sharpness). */
+  blur_score?: number | null;
   is_vip?: boolean;
   vip_id?: number | null;
   url: string;
+  /** Detection coordinate-space dims (absent on rows analyzed before v1.1). */
+  det_width?: number | null;
+  det_height?: number | null;
 }
 
 export interface JobStatus {
@@ -111,6 +120,7 @@ export interface Settings {
 
 export interface DuplicateGroup {
   group_id: string;
+  group_type?: 'burst' | 'variation' | 'similar' | null;
   photos: Photo[];
 }
 

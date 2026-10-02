@@ -1,8 +1,13 @@
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect, useRef } from 'react'
 import { X, CheckCircle2, XCircle, ArrowLeft, ArrowRight, Maximize2, ZoomIn, ZoomOut, Crown, Users } from 'lucide-react'
 import type { Photo } from '../types/photo'
 import { api } from '../api/client'
 import { FaceLoupe } from './FaceLoupe'
+import {
+  faceBoxToZoomOriginForElement,
+  type FaceBox,
+  type FaceSelectionMeta,
+} from '../utils/faceZoom'
 import clsx from 'clsx'
 import FirstPassLoader from './FirstPassLoader'
 
@@ -28,6 +33,7 @@ export default function QuickLoupeModal({
   const [zoomLevel, setZoomLevel] = useState(1)
   const [zoomOrigin, setZoomOrigin] = useState({ x: 50, y: 50 })
   const [imgLoaded, setImgLoaded] = useState(false)
+  const imgRef = useRef<HTMLImageElement | null>(null)
 
   // Reset zoom on photo change
   useEffect(() => {
@@ -36,12 +42,21 @@ export default function QuickLoupeModal({
     setImgLoaded(false)
   }, [photo.id])
 
-  const handleSelectFace = useCallback((box: [number, number, number, number]) => {
+  const handleSelectFace = useCallback((box: FaceBox, _faceIndex?: number, _isVip?: boolean, meta?: FaceSelectionMeta) => {
     if (!photo || !photo.width || !photo.height) return
-    const [bx, by, bw, bh] = box
-    const cx = Math.max(5, Math.min(95, ((bx + bw / 2) / photo.width) * 100))
-    const cy = Math.max(5, Math.min(95, ((by + bh / 2) / photo.height) * 100))
-    setZoomOrigin({ x: cx, y: cy })
+    // Boxes are normalized against the detection coordinate space (which can
+    // differ from full-res photo dims), then mapped onto the measured
+    // object-contain element so letterbox padding cannot shift the anchor.
+    const rect = imgRef.current?.getBoundingClientRect()
+    const origin = faceBoxToZoomOriginForElement(
+      box,
+      photo.width,
+      photo.height,
+      rect?.width,
+      rect?.height,
+      { detWidth: meta?.detWidth, detHeight: meta?.detHeight, rotationDeg: 0 }
+    )
+    setZoomOrigin(origin)
     setZoomLevel(2.8)
   }, [photo])
 
@@ -177,6 +192,7 @@ export default function QuickLoupeModal({
         )}
 
         <img
+          ref={imgRef}
           src={api.getFullImageUrl(photo.id)}
           alt={photo.filename}
           onLoad={() => setImgLoaded(true)}

@@ -61,7 +61,6 @@ export function getStoredHudPosition(): HudPosition {
 export function setStoredHudPosition(pos: HudPosition): void {
   try {
     localStorage.setItem('firstpass_hud_pos', JSON.stringify(pos))
-    localStorage.setItem('photo_culler_hud_pos', JSON.stringify(pos))
   } catch {}
 }
 

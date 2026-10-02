@@ -3,13 +3,14 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, ArrowRight, Check, X, SkipForward, Maximize2, RefreshCw,
   Zap, Eye, Columns, Sliders, PanelLeft, PanelRight, PanelBottom,
-  Palette, Moon, Info, ChevronDown, SlidersHorizontal, RotateCcw, Sparkles,
+  Palette, Moon, Info, ChevronDown, SlidersHorizontal, RotateCcw, RotateCw, Sparkles,
   ChevronsRight, ChevronsLeft, Anchor, GripVertical, Minus, Square, MoreHorizontal,
-  ExternalLink, Pin, Crown, Split, Film, ArrowLeftRight, LayoutGrid, FolderUp
+  ExternalLink, Pin, Crown, Split, Film, ArrowLeftRight, LayoutGrid, FolderUp,
+  Lock, Unlock
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api, getApiToken, initApiToken } from '../api/client'
-import type { Photo, DuplicateGroup } from '../types/photo'
+import type { Photo, DuplicateGroup, FaceCrop } from '../types/photo'
 import ScorePanel, {
   DockMode,
   PanelDockPlacement,
@@ -19,9 +20,13 @@ import ScorePanel, {
   MODULE_ICONS,
   InspectorModuleContent
 } from '../components/ScorePanel'
-import FaceLoupe, { toggleVipFaceStatus } from '../components/FaceLoupe'
+import FaceLoupe, { toggleVipFaceStatus, faceSelectionMeta } from '../components/FaceLoupe'
 import Filmstrip from '../components/Filmstrip'
+import PhotoContextMenu from '../components/PhotoContextMenu'
 import ClippingOverlay from '../components/ClippingOverlay'
+import RatingFlashHud, { RatingFlashKind } from '../components/RatingFlashHud'
+import CompositionGridOverlay, { CompositionGridMode } from '../components/CompositionGridOverlay'
+import FocusPeakingOverlay from '../components/FocusPeakingOverlay'
 import HistogramWidget, { HistogramChart } from '../components/HistogramWidget'
 import DraggablePanel from '../components/DraggablePanel'
 import ThemePickerModal from '../components/ThemePickerModal'
@@ -48,7 +53,14 @@ import {
   WorkspaceLayout
 } from '../utils/workspaceManager'
 import { usePhotosStore } from '../store/photosStore'
-import { preloadAdjacentPhotos, preloadAndDecodeImage, isImageDecoded } from '../utils/imagePreloader'
+import { matchesShortcut, getPrimaryShortcutKey, subscribeShortcuts } from '../utils/shortcutsManager'
+import { preloadAndDecodeImage, isImageDecoded, setNavigationDirection, getRamCachedImageUrl, isPhotoInRam, triggerPredictiveLookahead } from '../utils/imagePreloader'
+import {
+  faceBoxToZoomOriginForElement,
+  type FaceBox,
+  type FaceSelectionMeta,
+} from '../utils/faceZoom'
+import { playShutterSound, playRejectSound, playResetSound } from '../utils/audioFeedback'
 import clsx from 'clsx'
 
 export interface BottomGroup {
@@ -69,7 +81,6 @@ function getReviewStorage(key: string): string | null {
 function setReviewStorage(key: string, value: string): void {
   try {
     localStorage.setItem(`firstpass_${key}`, value)
-    localStorage.setItem(`photo_culler_${key}`, value)
   } catch {}
 }
 
@@ -97,8 +108,33 @@ export default function Review() {
   const [photo, setPhoto] = useState<Photo | null>(() => storePhoto || null)
   const [loading, setLoading] = useState(() => !storePhoto)
   const [fullscreen, setFullscreen] = useState(false)
+  // Re-render (rebindable hints + live key matching) when shortcuts change.
+  const [, setShortcutsVersion] = useState(0)
+  useEffect(() => subscribeShortcuts(() => setShortcutsVersion(v => v + 1)), [])
   const [duplicateGroup, setDuplicateGroup] = useState<Photo[]>([])
-  const [fullLoaded, setFullLoaded] = useState(() => isImageDecoded(api.getFullImageUrl(photoId)))
+  const [fullLoaded, setFullLoaded] = useState(() => isPhotoInRam(photoId) || isImageDecoded(api.getFullImageUrl(photoId)))
+  // Double-buffered viewer: the active layer stays rendered at full opacity
+  // until the incoming frame is completely decoded, then swaps instantly
+  // with zero black frame and no thumbnail-size pop.
+  const [displayedPhotoId, setDisplayedPhotoId] = useState<number>(photoId)
+  const [displayedSrc, setDisplayedSrc] = useState<string>(() => getRamCachedImageUrl(photoId) ?? api.getFullImageUrl(photoId))
+  const [incomingSrc, setIncomingSrc] = useState<string | null>(null)
+  const displayedSrcRef = useRef(displayedSrc)
+  displayedSrcRef.current = displayedSrc
+  const latestPhotoIdRef = useRef(photoId)
+  latestPhotoIdRef.current = photoId
+  // Atomically promote a fully-decoded incoming frame to the active layer.
+  // Stale decodes from rapid navigation are dropped.
+  const promoteIncoming = useCallback((url: string, id: number) => {
+    if (latestPhotoIdRef.current !== id) return
+    if (displayedSrcRef.current !== url) {
+      displayedSrcRef.current = url
+      setDisplayedSrc(url)
+    }
+    setDisplayedPhotoId(id)
+    setIncomingSrc(null)
+    setFullLoaded(true)
+  }, [])
   const [authToken, setAuthToken] = useState<string>(() => getApiToken())
 
   useEffect(() => {
@@ -116,6 +152,78 @@ export default function Review() {
   const [zoomedFace, setZoomedFace] = useState<{ index: number; isVip: boolean } | null>(null)
   const [isHoldingZoom, setIsHoldingZoom] = useState(false)
   const isMouseDownRef = useRef(false)
+  // Momentary Spacebar Loupe: saved zoom state restored on Space release.
+  const momentaryZoomRef = useRef<{ zoom: number; origin: { x: number; y: number }; pan: { x: number; y: number } } | null>(null)
+  // Transient Rating Flash HUD feedback (A/R/U/Tag).
+  const [ratingFlash, setRatingFlash] = useState<{ rating: RatingFlashKind | null; key: number }>({ rating: null, key: 0 })
+  const flashRating = useCallback((rating: RatingFlashKind) => {
+    setRatingFlash(prev => ({ rating, key: prev.key + 1 }))
+  }, [])
+  // Diagnostic overlays: focus peaking (P) + composition grid (O).
+  const [showFocusPeaking, setShowFocusPeaking] = useState(false)
+  const [gridMode, setGridMode] = useState<CompositionGridMode>('none')
+  const cycleGridOverlay = useCallback(() => {
+    setGridMode(prev => {
+      const next: CompositionGridMode =
+        prev === 'none' ? 'thirds' : prev === 'thirds' ? 'golden' : prev === 'golden' ? 'crosshair' : 'none'
+      toast(
+        next === 'none' ? 'Composition Grid: Off' :
+        next === 'thirds' ? 'Composition Grid: Rule of Thirds' :
+        next === 'golden' ? 'Composition Grid: Golden Ratio' :
+        'Composition Grid: Crosshair',
+        { id: 'grid-toast', icon: '📐' }
+      )
+      return next
+    })
+  }, [])
+  // Predictive lookahead: previous index for direction detection + reactive
+  // copy of the active direction for the direction-aligned pre-render cache
+  const prevPhotoIndexRef = useRef<number | null>(null)
+  const [lookaheadDirection, setLookaheadDirection] = useState<1 | -1>(1)
+  // Lightroom-style "Keep Zoom": preserve magnification/position across photos
+  const [lockZoom, setLockZoom] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('firstpass:lock_zoom') ?? getReviewStorage('lock_zoom')
+      return saved === 'true'
+    } catch {
+      return false
+    }
+  })
+  // Lock Turn: preserve rotation angle across photos
+  const [lockTurn, setLockTurn] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('firstpass:lock_turn') ?? getReviewStorage('lock_turn')
+      return saved === 'true'
+    } catch {
+      return false
+    }
+  })
+  // Free rotation (degrees) + two-finger/drag pan offset (pixels)
+  const [rotation, setRotation] = useState<number>(0)
+  const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+  const [isPanning, setIsPanning] = useState(false)
+  const [isWheeling, setIsWheeling] = useState(false)
+  // Exact cursor position over the image (percent) — sticky zoom centers here
+  const cursorPosRef = useRef<{ x: number; y: number }>({ x: 50, y: 50 })
+  const imageContainerRef = useRef<HTMLDivElement | null>(null)
+  const mainImageRef = useRef<HTMLImageElement | null>(null)
+  const panDragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null)
+  const suppressClickRef = useRef(false)
+  const wheelEndTimerRef = useRef<number | null>(null)
+  const gestureStartRotationRef = useRef<number>(0)
+  // Ref mirrors for the non-passive native wheel/gesture listeners
+  const zoomLevelRef = useRef(zoomLevel)
+  zoomLevelRef.current = zoomLevel
+  const rotationRef = useRef(rotation)
+  rotationRef.current = rotation
+  const zoomOriginRef = useRef(zoomOrigin)
+  zoomOriginRef.current = zoomOrigin
+  const panOffsetRef = useRef(panOffset)
+  panOffsetRef.current = panOffset
+  const lockZoomRef = useRef(lockZoom)
+  lockZoomRef.current = lockZoom
+  const lockTurnRef = useRef(lockTurn)
+  lockTurnRef.current = lockTurn
   const [isReanalyzing, setIsReanalyzing] = useState(false)
   const [showClipping, setShowClipping] = useState(false)
   type HistogramMode = 'sidebar' | 'bottom' | 'floating' | 'hidden'
@@ -680,7 +788,6 @@ export default function Review() {
       try {
         const serialized = JSON.stringify({ x, y })
         localStorage.setItem('firstpass_filmstrip_panel_pos', serialized)
-        localStorage.setItem('photo_culler_filmstrip_panel_pos', serialized)
       } catch {}
     }
 
@@ -1111,6 +1218,66 @@ export default function Review() {
     }
   }, [photo, prevPhoto, nextPhoto, navigate])
 
+  // ── BurstPick-style burst culling ──────────────────────────────────────────
+  // All frames sharing the current photo's burst_group_id, in capture order.
+  const burstPhotos = React.useMemo(() => {
+    if (!photo?.burst_group_id) return [] as Photo[]
+    return photos
+      .filter((p) => p.burst_group_id === photo.burst_group_id)
+      .sort((a, b) => {
+        const ta = a.exif_date ? Date.parse(a.exif_date) : NaN
+        const tb = b.exif_date ? Date.parse(b.exif_date) : NaN
+        if (!Number.isNaN(ta) && !Number.isNaN(tb) && ta !== tb) return ta - tb
+        return a.id - b.id
+      })
+  }, [photos, photo?.burst_group_id])
+
+  // AI Best Pick: highest overall score (burst leader wins ties by sort order).
+  const burstBest = React.useMemo(() => {
+    if (burstPhotos.length === 0) return null as Photo | null
+    let best = burstPhotos.find((p) => p.is_burst_leader) ?? burstPhotos[0]
+    for (const p of burstPhotos) {
+      if ((p.overall_score ?? -Infinity) > (best.overall_score ?? -Infinity)) best = p
+    }
+    return best
+  }, [burstPhotos])
+
+  // Relative capture-time deltas (e.g. +0.0s, +0.2s); null when EXIF time is missing.
+  const burstDeltas = React.useMemo(() => {
+    if (burstPhotos.length === 0) return [] as (string | null)[]
+    const times = burstPhotos.map((p) => (p.exif_date ? Date.parse(p.exif_date) : NaN))
+    if (times.some((t) => Number.isNaN(t))) return burstPhotos.map(() => null)
+    const t0 = times[0]
+    return times.map((t) => `+${((t - t0) / 1000).toFixed(1)}s`)
+  }, [burstPhotos])
+
+  // One-click: keep the best frame, reject the rest of the burst.
+  const handlePickBurstBest = useCallback(async () => {
+    if (!burstBest || burstPhotos.length === 0) return
+    try {
+      await Promise.all(
+        burstPhotos.map((p) => {
+          const status = (p.id === burstBest.id ? 'accepted' : 'rejected') as Photo['status']
+          return api.updatePhotoStatus(p.id, status).then(() => updatePhotoStatusLocal(p.id, status))
+        })
+      )
+      setPhoto((prev) => (prev ? { ...prev, status: prev.id === burstBest.id ? 'accepted' : 'rejected' } : prev))
+      toast.success(`👑 Best frame picked: ${burstBest.filename}`, { id: 'burst-pick-best' })
+    } catch {
+      toast.error('Burst pick failed', { id: 'burst-pick-best' })
+    }
+  }, [burstBest, burstPhotos, updatePhotoStatusLocal])
+
+  // Open the whole burst side-by-side in Multi-Up Compare with mirrored zoom & pan.
+  const handleCompareBurst = useCallback(() => {
+    if (!photo || burstPhotos.length === 0) return
+    let ids = burstPhotos.slice(0, 4).map((p) => p.id)
+    if (!ids.includes(photo.id)) {
+      ids = [photo.id, ...burstPhotos.filter((p) => p.id !== photo.id).slice(0, 3).map((p) => p.id)]
+    }
+    navigate(`/compare?ids=${ids.join(',')}&returnTo=/review/${photo.id}`)
+  }, [burstPhotos, photo, navigate])
+
   useEffect(() => {
     const cached = usePhotosStore.getState().photos.find(p => p.id === photoId)
     if (cached) {
@@ -1120,15 +1287,40 @@ export default function Review() {
       setLoading(true)
     }
 
-    const fullUrl = api.getFullImageUrl(photoId)
-    setFullLoaded(isImageDecoded(fullUrl))
-    preloadAndDecodeImage(fullUrl).then(ok => { if (ok) setFullLoaded(true) })
+    // Double-buffered transition: keep the current layer visible at full
+    // opacity while the incoming frame decodes, then swap with zero black
+    // frame. Already-decoded frames swap instantly.
+    const targetUrl = getRamCachedImageUrl(photoId) ?? api.getFullImageUrl(photoId)
+    if (targetUrl === displayedSrcRef.current) {
+      promoteIncoming(targetUrl, photoId)
+    } else if (isPhotoInRam(photoId) || isImageDecoded(targetUrl)) {
+      // Primed in RAM by predictive lookahead: literally 0ms latency swap.
+      promoteIncoming(targetUrl, photoId)
+    } else {
+      setIncomingSrc(targetUrl)
+      void preloadAndDecodeImage(targetUrl).then((ok) => {
+        if (ok) promoteIncoming(targetUrl, photoId)
+      })
+    }
 
-    setZoomLevel(1)
-    setZoomOrigin({ x: 50, y: 50 })
+    // Lightroom "Keep Zoom": when locked, carry zoom/origin/pan to the next photo
+    if (!lockZoomRef.current) {
+      setZoomLevel(1)
+      setZoomOrigin({ x: 50, y: 50 })
+      setPanOffset({ x: 0, y: 0 })
+      setZoomedFace(null)
+    }
+
+    // Lock Turn: when locked, carry rotation to the next photo
+    if (!lockTurnRef.current && !lockZoomRef.current) {
+      setRotation(0)
+    }
     setIsHoldingZoom(false)
     isMouseDownRef.current = false
-    setZoomedFace(null)
+    setIsPanning(false)
+    panDragRef.current = null
+    // A held Space must never restore stale zoom onto the new photo.
+    momentaryZoomRef.current = null
 
     let cancelled = false
     api.getPhoto(photoId)
@@ -1165,18 +1357,99 @@ export default function Review() {
     }
   }, [photoId])
 
-  // Background GPU pre-decoding of adjacent images for instant culling
+  // Predictive lookahead: detect navigation direction and pre-fetch the next
+  // frames in the active direction into RAM (frontend blob cache + backend RAM)
   useEffect(() => {
-    preloadAdjacentPhotos(photos, currentIndex, api.getFullImageUrl, api.getThumbnailUrl, 6, 2)
+    if (currentIndex < 0) return
+    if (prevPhotoIndexRef.current !== null && currentIndex !== prevPhotoIndexRef.current) {
+      const dir = (currentIndex > prevPhotoIndexRef.current ? 1 : -1) as 1 | -1
+      setNavigationDirection(dir)
+      setLookaheadDirection(dir)
+    }
+    prevPhotoIndexRef.current = currentIndex
+    triggerPredictiveLookahead(photos, currentIndex, api.getFullImageUrl, api.getThumbnailUrl)
   }, [currentIndex, photos])
 
-  const handleSelectFace = useCallback((box: [number, number, number, number], faceIndex?: number, isVip?: boolean) => {
+  // Aggressive lookahead: hard-guarantee the immediate N±1/N±2 full frames are
+  // GPU-decoded on every photo change so arrow-key navigation has 0ms latency.
+  useEffect(() => {
+    const idx = photos.findIndex(p => p.id === photoId)
+    if (idx < 0) return
+    for (const offset of [1, 2, -1, -2]) {
+      const neighbor = photos[idx + offset]
+      if (neighbor) void preloadAndDecodeImage(api.getFullImageUrl(neighbor.id))
+    }
+  }, [photoId, photos])
+
+  // Faces for the zero-mouse 1–9 face stepper (fetched alongside FaceLoupe).
+  const [reviewFaces, setReviewFaces] = useState<FaceCrop[]>([])
+  useEffect(() => {
+    if (!photo?.id) {
+      setReviewFaces([])
+      return
+    }
+    let cancelled = false
+    api.getPhotoFaces(photo.id)
+      .then(res => {
+        if (!cancelled) setReviewFaces(res.faces || [])
+      })
+      .catch(() => {
+        if (!cancelled) setReviewFaces([])
+      })
+    return () => { cancelled = true }
+  }, [photo?.id])
+
+  // Pro right-click menu state for filmstrip thumbnails.
+  const [filmstripMenu, setFilmstripMenu] = useState<{ x: number; y: number; photo: Photo } | null>(null)
+
+  const handleFilmstripContextMenu = useCallback((e: React.MouseEvent, target: Photo) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setFilmstripMenu({ x: e.clientX, y: e.clientY, photo: target })
+  }, [])
+
+  const handleSelectFace = useCallback((box: FaceBox, faceIndex?: number, isVip?: boolean, meta?: FaceSelectionMeta) => {
     if (!photo || !photo.width || !photo.height) return
-    const [bx, by, bw, bh] = box
-    const cx = Math.max(5, Math.min(95, ((bx + bw / 2) / photo.width) * 100))
-    const cy = Math.max(5, Math.min(95, ((by + bh / 2) / photo.height) * 100))
-    setZoomOrigin({ x: cx, y: cy })
-    setZoomLevel(3)
+    // Boxes are normalized against the detection coordinate space (which can
+    // differ from full-res photo dims), then mapped onto the measured
+    // object-contain element so letterbox padding cannot shift the anchor.
+    // rotationDeg stays 0 here on purpose: the view's own CSS rotation shares
+    // this same transform-origin, so the origin point is invariant under it —
+    // mapping by the user rotation would push the anchor off the face. The
+    // rotation mapping in the helper exists for display-vs-detection
+    // orientation (EXIF) and is exercised by Compare's Face Lock.
+    // Use layout size (pre-transform): getBoundingClientRect() returns the
+    // post-scale box, so re-selecting a face while zoomed would feed an
+    // already-scaled size into the pan formula and throw the image off-screen.
+    const el = mainImageRef.current
+    if (!el) return
+    const elW = el.offsetWidth
+    const elH = el.offsetHeight
+    if (!elW || !elH) return
+    // Get face center as element-fraction (0..1), accounting for letterbox.
+    const origin = faceBoxToZoomOriginForElement(
+      box,
+      photo.width,
+      photo.height,
+      elW,
+      elH,
+      { detWidth: meta?.detWidth, detHeight: meta?.detHeight, rotationDeg: 0 }
+    )
+    // origin.x/y are element percent (0-100); convert to fraction.
+    const fx = origin.x / 100
+    const fy = origin.y / 100
+    const ZOOM = 3
+    // With transform-origin at 50%,50% and scale(ZOOM), translate lives in
+    // unscaled screen space (it applies after scale in the transform list),
+    // so bringing (fx,fy) to the element center needs:
+    //   pan = (0.5 - f) * layoutSize * ZOOM
+    const panX = (0.5 - fx) * elW * ZOOM
+    const panY = (0.5 - fy) * elH * ZOOM
+    setZoomOrigin({ x: 50, y: 50 })
+    setZoomLevel(ZOOM)
+    setPanOffset({ x: panX, y: panY })
+    panDragRef.current = null
+    setIsPanning(false)
     if (faceIndex !== undefined) {
       setZoomedFace({ index: faceIndex, isVip: Boolean(isVip) })
     } else {
@@ -1184,62 +1457,202 @@ export default function Review() {
     }
   }, [photo])
 
-  const handleResetZoom = useCallback(() => {
-    setZoomLevel(1)
-    setZoomOrigin({ x: 50, y: 50 })
-    setIsHoldingZoom(false)
-    isMouseDownRef.current = false
-    setZoomedFace(null)
+  const setLockZoomAndStore = useCallback((next: boolean) => {
+    setLockZoom(next)
+    try {
+      localStorage.setItem('firstpass:lock_zoom', String(next))
+      setReviewStorage('lock_zoom', String(next))
+    } catch {}
+    window.electronAPI?.updateMenuState?.({ lockZoom: next, lockTurn: lockTurnRef.current })
+    toast(next ? 'Lock Zoom Across Photos: ON' : 'Lock Zoom Across Photos: OFF', { id: 'lock-zoom-toast', icon: '🔒' })
   }, [])
 
-  const handleToggleZoom = useCallback(() => {
-    if (zoomLevel > 1) {
+  const toggleLockZoom = useCallback(() => {
+    setLockZoomAndStore(!lockZoomRef.current)
+  }, [setLockZoomAndStore])
+
+  const setLockTurnAndStore = useCallback((next: boolean) => {
+    setLockTurn(next)
+    try {
+      localStorage.setItem('firstpass:lock_turn', String(next))
+      setReviewStorage('lock_turn', String(next))
+    } catch {}
+    window.electronAPI?.updateMenuState?.({ lockTurn: next, lockZoom: lockZoomRef.current })
+    toast(next ? 'Lock Turn Between Photos: ON' : 'Lock Turn Between Photos: OFF', { id: 'lock-turn-toast', icon: '🔒' })
+  }, [])
+
+  const toggleLockTurn = useCallback(() => {
+    setLockTurnAndStore(!lockTurnRef.current)
+  }, [setLockTurnAndStore])
+
+  // Track the exact cursor position over the image (percent of the element)
+  const updateCursorPos = useCallback((clientX: number, clientY: number, el: Element | null) => {
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    if (rect.width === 0 || rect.height === 0) return
+    const x = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100))
+    const y = Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100))
+    cursorPosRef.current = { x, y }
+  }, [])
+
+  // Sticky loupe: tapping Z / Space / click toggles 100% <-> 200% at the cursor.
+  // It stays put until toggled again or Esc — no click-and-hold required.
+  const toggleStickyZoom = useCallback(() => {
+    if (zoomLevelRef.current > 1) {
       setZoomLevel(1)
-      setZoomOrigin({ x: 50, y: 50 })
+      setPanOffset({ x: 0, y: 0 })
       setIsHoldingZoom(false)
       setZoomedFace(null)
     } else {
-      setZoomLevel(2.5)
-      setZoomOrigin({ x: 50, y: 50 })
+      setZoomOrigin({ ...cursorPosRef.current })
+      setZoomLevel(2)
       setZoomedFace(null)
+      setIsHoldingZoom(false)
     }
-  }, [zoomLevel])
+  }, [])
+
+  const handleResetZoom = useCallback(() => {
+    setZoomLevel(1)
+    setZoomOrigin({ x: 50, y: 50 })
+    setPanOffset({ x: 0, y: 0 })
+    setIsHoldingZoom(false)
+    isMouseDownRef.current = false
+    setIsPanning(false)
+    panDragRef.current = null
+    setZoomedFace(null)
+  }, [])
+
+  const handleRotate = useCallback((delta: number) => {
+    setRotation(prev => (((prev + delta) % 360) + 360) % 360)
+  }, [])
+
+  const handleImageClick = (e: React.MouseEvent<HTMLImageElement>) => {
+    // A real pan-drag ending in a click must not toggle the loupe
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false
+      return
+    }
+    // Pin the exact click point first so the loupe centers precisely there
+    updateCursorPos(e.clientX, e.clientY, e.currentTarget)
+    toggleStickyZoom()
+  }
 
   const handleMouseDown = (e: React.MouseEvent<HTMLImageElement>) => {
     if (e.button !== 0) return // Left click only
-    const rect = e.currentTarget.getBoundingClientRect()
-    const x = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100))
-    const y = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100))
-    setZoomOrigin({ x, y })
+    updateCursorPos(e.clientX, e.clientY, e.currentTarget)
     isMouseDownRef.current = true
 
-    if (zoomLevel === 1) {
-      setZoomLevel(2.5)
-      setIsHoldingZoom(true)
-      setZoomedFace(null)
+    if (zoomLevelRef.current > 1) {
+      // Drag-to-pan while zoomed in (click toggles zoom out on mouse-up click)
+      setPanOffset(current => {
+        panDragRef.current = { startX: e.clientX, startY: e.clientY, panX: current.x, panY: current.y }
+        return current
+      })
+      setIsPanning(true)
     }
   }
 
   const handleMouseMove = (e: React.MouseEvent<HTMLImageElement>) => {
-    if (!isMouseDownRef.current || !isHoldingZoom) return
-    const rect = e.currentTarget.getBoundingClientRect()
-    const x = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100))
-    const y = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100))
-    setZoomOrigin({ x, y })
+    updateCursorPos(e.clientX, e.clientY, e.currentTarget)
+    if (!isMouseDownRef.current || !panDragRef.current) return
+    const drag = panDragRef.current
+    const dx = e.clientX - drag.startX
+    const dy = e.clientY - drag.startY
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) suppressClickRef.current = true
+    setPanOffset({ x: drag.panX + dx, y: drag.panY + dy })
   }
 
   const handleMouseUp = () => {
-    if (isHoldingZoom) {
-      setZoomLevel(1)
-      setZoomOrigin({ x: 50, y: 50 })
-      setIsHoldingZoom(false)
-      setZoomedFace(null)
-    }
+    // Sticky zoom: releasing the mouse never resets the loupe
+    panDragRef.current = null
+    setIsPanning(false)
     isMouseDownRef.current = false
   }
 
+  // Smooth zoom / pan / rotate via scroll & trackpad gestures (non-passive so
+  // pinch/pan/rotate can take over the event instead of scrolling the page)
+  useEffect(() => {
+    const el = imageContainerRef.current
+    if (!el) return
+
+    const markWheeling = () => {
+      setIsWheeling(true)
+      if (wheelEndTimerRef.current !== null) window.clearTimeout(wheelEndTimerRef.current)
+      wheelEndTimerRef.current = window.setTimeout(() => {
+        setIsWheeling(false)
+        wheelEndTimerRef.current = null
+      }, 120)
+    }
+
+    const onWheel = (e: WheelEvent) => {
+      // Trackpad pinch-to-zoom arrives as wheel + Ctrl/Cmd (Chromium/macOS)
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault()
+        const img = el.querySelector('img')
+        if (img) updateCursorPos(e.clientX, e.clientY, img)
+        markWheeling()
+        const prev = zoomLevelRef.current
+        const next = Math.max(1, Math.min(5, prev + -e.deltaY * 0.01))
+        if (prev === 1 && next > 1) setZoomOrigin({ ...cursorPosRef.current })
+        setZoomLevel(next)
+        if (next === 1) setPanOffset({ x: 0, y: 0 })
+        return
+      }
+      // Alt/Option + wheel or Shift + wheel rotates smoothly
+      if (e.altKey || e.shiftKey) {
+        e.preventDefault()
+        markWheeling()
+        const delta = e.deltaY > 0 ? 5 : -5
+        setRotation(prev => (((prev + delta) % 360) + 360) % 360)
+        return
+      }
+      // Plain two-finger scroll pans while zoomed in
+      if (zoomLevelRef.current > 1) {
+        e.preventDefault()
+        markWheeling()
+        setPanOffset(prev => ({ x: prev.x - e.deltaX, y: prev.y - e.deltaY }))
+      }
+    }
+
+    // macOS trackpad rotation gestures (Safari/WebKit-style gesture events)
+    const onGestureStart = (e: Event) => {
+      e.preventDefault()
+      gestureStartRotationRef.current = rotationRef.current
+    }
+    const onGestureChange = (e: Event) => {
+      e.preventDefault()
+      const rotation = (e as unknown as { rotation?: number }).rotation
+      if (typeof rotation === 'number') {
+        setRotation((((gestureStartRotationRef.current + rotation) % 360) + 360) % 360)
+      }
+    }
+    const onGestureEnd = (e: Event) => {
+      e.preventDefault()
+    }
+
+    el.addEventListener('wheel', onWheel, { passive: false })
+    el.addEventListener('gesturestart', onGestureStart)
+    el.addEventListener('gesturechange', onGestureChange)
+    el.addEventListener('gestureend', onGestureEnd)
+    return () => {
+      el.removeEventListener('wheel', onWheel)
+      el.removeEventListener('gesturestart', onGestureStart)
+      el.removeEventListener('gesturechange', onGestureChange)
+      el.removeEventListener('gestureend', onGestureEnd)
+      if (wheelEndTimerRef.current !== null) {
+        window.clearTimeout(wheelEndTimerRef.current)
+        wheelEndTimerRef.current = null
+      }
+    }
+    // photo?.id: the image container only mounts once the photo has loaded
+  }, [updateCursorPos, photo?.id])
+
   const handleStatus = useCallback(async (status: 'accepted' | 'rejected' | 'pending') => {
     if (!photo) return
+    flashRating(status)
+    if (status === 'accepted') playShutterSound()
+    else if (status === 'rejected') playRejectSound()
+    else playResetSound()
     const currentPhotoId = photo.id
     setPhoto(prev => (prev && prev.id === currentPhotoId ? { ...prev, status } : prev))
     const statusPromise = setPhotoStatusWithUndo(currentPhotoId, status)
@@ -1247,7 +1660,13 @@ export default function Review() {
       navigate(`/review/${nextPhoto.id}`)
     }
     await statusPromise
-  }, [photo, nextPhoto, autoAdvance, setPhotoStatusWithUndo, navigate])
+  }, [photo, nextPhoto, autoAdvance, setPhotoStatusWithUndo, navigate, flashRating])
+
+  const handleToggleTag = useCallback(() => {
+    if (!photo) return
+    togglePhotoTag(photo.id)
+    flashRating('tagged')
+  }, [photo, togglePhotoTag, flashRating])
 
   const handleSkip = useCallback(async () => {
     if (!photo) return
@@ -1266,113 +1685,255 @@ export default function Review() {
   // Keyboard shortcuts
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     const target = e.target as HTMLElement
-    if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA') return
+    if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable) return
 
-    // Undo / Redo
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+    // Undo / Redo (customizable via matchesShortcut; Cmd+Shift+Z falls to redo)
+    if (matchesShortcut(e, 'undo')) {
       e.preventDefault()
       if (e.shiftKey) redo()
       else undo()
       return
     }
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
+    if (matchesShortcut(e, 'redo')) {
       e.preventDefault()
       redo()
       return
     }
 
     if (!photo) return
-    switch (e.key) {
-      case ' ':
-        e.preventDefault()
-        handleSkip()
-        break
-      case 'CapsLock':
-        e.preventDefault()
-        toggleAutoAdvance()
-        break
-      case '\\': case 't': case 'T':
-        e.preventDefault()
-        togglePhotoTag(photo.id)
-        break
-      case 'b': case 'B':
-        e.preventDefault()
-        setFilmstripPosition(filmstripPosition === 'hidden' ? 'bottom' : 'hidden')
-        break
-      case '`': case '~': case '1': case 'a': case 'A': case 'p': case 'P':
-        e.preventDefault()
-        handleStatus('accepted')
-        break
-      case '2': case 'r': case 'R': case 'x': case 'X':
-        e.preventDefault()
-        handleStatus('rejected')
-        break
-      case '0': case 'u': case 'U':
-        e.preventDefault()
-        handleStatus('pending')
-        break
-      case 'ArrowRight':
-        e.preventDefault()
-        if (nextPhoto) navigate(`/review/${nextPhoto.id}`)
-        break
-      case 'ArrowLeft':
-        e.preventDefault()
-        if (prevPhoto) navigate(`/review/${prevPhoto.id}`)
-        break
-      case 'Escape':
-        if (lightsOutLevel > 0) {
-          setLightsOutLevel(0)
-        } else if (zoomLevel > 1) {
-          setZoomLevel(1)
-          setZoomOrigin({ x: 50, y: 50 })
-          setIsHoldingZoom(false)
-        } else {
-          navigate('/')
-        }
-        break
-      case 'l': case 'L':
-        e.preventDefault()
-        cycleLightsOut()
-        break
-      case 'i': case 'I':
-        e.preventDefault()
-        cycleHud()
-        break
-      case 'z': case 'Z':
-        e.preventDefault()
-        handleToggleZoom()
-        break
-      case 'e': case 'E':
-        e.preventDefault()
-        setShowClipping(prev => {
-          const next = !prev
-          toast(next ? 'Exposure Clipping (Blinkies) ON' : 'Clipping overlay OFF', { id: 'clipping-toast', icon: '☀️' })
-          return next
-        })
-        break
-      case 'h': case 'H':
-        e.preventDefault()
-        cycleHistogram()
-        break
-      case 'Tab':
-        e.preventDefault()
-        toggleScorePanel()
-        break
-      case 'c': case 'C':
-        e.preventDefault()
-        handleOpenCompare()
-        break
-      case 'f': case 'F':
-        e.preventDefault()
-        setFullscreen(prev => !prev)
-        break
+
+    // Modifier combos first so they win over their bare-key siblings (T/L).
+    if (matchesShortcut(e, 'lock_turn')) {
+      e.preventDefault()
+      toggleLockTurn()
+      return
     }
-  }, [photo, nextPhoto, prevPhoto, zoomLevel, handleToggleZoom, undo, redo, navigate, autoAdvance, toggleAutoAdvance, filmstripPosition, setFilmstripPosition, togglePhotoTag, handleOpenCompare, toggleScorePanel, lightsOutLevel, cycleLightsOut, cycleHud, cycleHistogram, handleSkip, handleStatus])
+    if (matchesShortcut(e, 'lock_zoom')) {
+      e.preventDefault()
+      toggleLockZoom()
+      return
+    }
+    // Momentary Spacebar Loupe: hold Space for a 250% peek at the cursor,
+    // release to restore. Z (toggle_zoom) remains the sticky lock. This must
+    // run before toggle_zoom so Space never sticky-toggles.
+    if (e.key === ' ' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      e.preventDefault()
+      if (!e.repeat && !momentaryZoomRef.current) {
+        momentaryZoomRef.current = {
+          zoom: zoomLevelRef.current,
+          origin: { ...zoomOriginRef.current },
+          pan: { ...panOffsetRef.current },
+        }
+        setZoomOrigin({ ...cursorPosRef.current })
+        setPanOffset({ x: 0, y: 0 })
+        setZoomLevel(2.5)
+        setZoomedFace(null)
+      }
+      return
+    }
+    // Display & HUD overlays (checked before rate_accept: P doubles as a
+    // legacy accept binding, and the peaking toggle owns it in Review).
+    if (matchesShortcut(e, 'toggle_focus_peaking')) {
+      e.preventDefault()
+      setShowFocusPeaking(prev => {
+        const next = !prev
+        toast(next ? 'Focus Peaking ON' : 'Focus Peaking OFF', { id: 'peaking-toast', icon: '🎯' })
+        return next
+      })
+      return
+    }
+    if (matchesShortcut(e, 'toggle_grid_overlay')) {
+      e.preventDefault()
+      cycleGridOverlay()
+      return
+    }
+    // Zero-mouse face loupe stepper: 1–9 snaps 300% zoom straight to a
+    // face. Takes precedence over the legacy 1/2 rating bindings, but only
+    // when this photo actually has detected faces.
+    if (!e.metaKey && !e.ctrlKey && !e.altKey && reviewFaces.length > 0 && /^[1-9]$/.test(e.key)) {
+      e.preventDefault()
+      const num = parseInt(e.key, 10)
+      const face = reviewFaces[num - 1]
+      if (face) {
+        handleSelectFace(face.box, num - 1, face.is_vip, faceSelectionMeta(face))
+        playResetSound()
+        toast(`Face #${num}`, { icon: '🔍', id: 'face-stepper' })
+      } else {
+        toast(`Only ${reviewFaces.length} face${reviewFaces.length === 1 ? '' : 's'} on this photo`, { icon: '👥', id: 'face-stepper' })
+      }
+      return
+    }
+    if (matchesShortcut(e, 'rate_accept')) {
+      e.preventDefault()
+      handleStatus('accepted')
+      return
+    }
+    if (matchesShortcut(e, 'rate_reject')) {
+      e.preventDefault()
+      handleStatus('rejected')
+      return
+    }
+    if (matchesShortcut(e, 'rate_pending')) {
+      e.preventDefault()
+      handleStatus('pending')
+      return
+    }
+    if (matchesShortcut(e, 'pick_burst_best')) {
+      e.preventDefault()
+      void handlePickBurstBest()
+      return
+    }
+    if (matchesShortcut(e, 'nav_next')) {
+      e.preventDefault()
+      if (nextPhoto) navigate(`/review/${nextPhoto.id}`)
+      return
+    }
+    if (matchesShortcut(e, 'nav_prev')) {
+      e.preventDefault()
+      if (prevPhoto) navigate(`/review/${prevPhoto.id}`)
+      return
+    }
+    if (matchesShortcut(e, 'jump_next_pending')) {
+      e.preventDefault()
+      const after = photos.findIndex((p, i) => i > currentIndex && p.status === 'pending')
+      const target = after !== -1 ? photos[after] : photos.find(p => p.status === 'pending')
+      if (!target) {
+        toast('No unreviewed photos left', { icon: '✅', id: 'jump-pending' })
+      } else if (target.id === photo.id) {
+        toast('Already on the only unreviewed photo', { icon: '📍', id: 'jump-pending' })
+      } else {
+        navigate(`/review/${target.id}`)
+      }
+      return
+    }
+    if (matchesShortcut(e, 'jump_next_flagged')) {
+      e.preventDefault()
+      const isFlagged = (p: Photo) => p.is_blurry === true || p.has_closed_eyes === true
+      const after = photos.findIndex((p, i) => i > currentIndex && isFlagged(p))
+      const target = after !== -1 ? photos[after] : photos.find(isFlagged)
+      if (!target) {
+        toast('No flagged photos (blur / closed eyes)', { icon: '✅', id: 'jump-flagged' })
+      } else if (target.id === photo.id) {
+        toast('Already on the only flagged photo', { icon: '📍', id: 'jump-flagged' })
+      } else {
+        navigate(`/review/${target.id}`)
+      }
+      return
+    }
+    if (matchesShortcut(e, 'toggle_zoom')) {
+      e.preventDefault()
+      toggleStickyZoom()
+      return
+    }
+    if (matchesShortcut(e, 'toggle_tag')) {
+      e.preventDefault()
+      handleToggleTag()
+      return
+    }
+    if (matchesShortcut(e, 'toggle_auto_advance')) {
+      e.preventDefault()
+      toggleAutoAdvance()
+      return
+    }
+    if (matchesShortcut(e, 'toggle_fullscreen')) {
+      e.preventDefault()
+      setFullscreen(prev => !prev)
+      return
+    }
+    if (matchesShortcut(e, 'toggle_lights_out')) {
+      e.preventDefault()
+      cycleLightsOut()
+      return
+    }
+    if (matchesShortcut(e, 'toggle_hud')) {
+      e.preventDefault()
+      cycleHud()
+      return
+    }
+    if (matchesShortcut(e, 'toggle_clipping')) {
+      e.preventDefault()
+      setShowClipping(prev => {
+        const next = !prev
+        toast(next ? 'Exposure Clipping (Blinkies) ON' : 'Clipping overlay OFF', { id: 'clipping-toast', icon: '☀️' })
+        return next
+      })
+      return
+    }
+    if (matchesShortcut(e, 'toggle_histogram')) {
+      e.preventDefault()
+      cycleHistogram()
+      return
+    }
+    if (matchesShortcut(e, 'toggle_sidebar')) {
+      e.preventDefault()
+      toggleScorePanel()
+      return
+    }
+    if (matchesShortcut(e, 'toggle_compare')) {
+      e.preventDefault()
+      handleOpenCompare()
+      return
+    }
+    if (matchesShortcut(e, 'rotate_ccw')) {
+      e.preventDefault()
+      handleRotate(-90)
+      return
+    }
+    if (matchesShortcut(e, 'rotate_cw')) {
+      e.preventDefault()
+      handleRotate(90)
+      return
+    }
+
+    // Non-rebindable legacy keys.
+    if (e.key.toLowerCase() === 'b' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      e.preventDefault()
+      setFilmstripPosition(filmstripPosition === 'hidden' ? 'bottom' : 'hidden')
+      return
+    }
+    if (e.key === 'Escape') {
+      // A held Space must not restore zoom after an explicit reset.
+      momentaryZoomRef.current = null
+      if (lightsOutLevel > 0) {
+        setLightsOutLevel(0)
+      } else if (zoomLevelRef.current > 1) {
+        setZoomLevel(1)
+        setZoomOrigin({ x: 50, y: 50 })
+        setPanOffset({ x: 0, y: 0 })
+        setIsHoldingZoom(false)
+        setZoomedFace(null)
+      } else {
+        navigate('/')
+      }
+    }
+  }, [photo, photos, currentIndex, nextPhoto, prevPhoto, toggleStickyZoom, handleRotate, undo, redo, navigate, autoAdvance, toggleAutoAdvance, filmstripPosition, setFilmstripPosition, handleToggleTag, handleOpenCompare, toggleScorePanel, lightsOutLevel, cycleLightsOut, cycleHud, cycleHistogram, handleSkip, handleStatus, handlePickBurstBest, cycleGridOverlay, reviewFaces, handleSelectFace])
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [handleKeyDown])
+
+  // Momentary Spacebar Loupe release: restore the exact pre-hold zoom state.
+  useEffect(() => {
+    const restoreMomentaryZoom = () => {
+      const saved = momentaryZoomRef.current
+      if (!saved) return
+      momentaryZoomRef.current = null
+      setZoomLevel(saved.zoom)
+      setZoomOrigin(saved.origin)
+      setPanOffset(saved.pan)
+      setZoomedFace(null)
+    }
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === ' ') restoreMomentaryZoom()
+    }
+    window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', restoreMomentaryZoom)
+    return () => {
+      window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', restoreMomentaryZoom)
+    }
+  }, [])
 
   // Listen for native Application Menu actions targeted at Review
   useEffect(() => {
@@ -1414,10 +1975,14 @@ export default function Review() {
           if (photos.length > 0) navigate(`/review/${photos[photos.length - 1].id}`)
           break
         case 'zoom-in':
-          setZoomLevel(prev => Math.min(3, prev + 0.5))
+          setZoomLevel(prev => Math.min(5, prev + 0.5))
           break
         case 'zoom-out':
-          setZoomLevel(prev => Math.max(1, prev - 0.5))
+          setZoomLevel(prev => {
+            const next = Math.max(1, prev - 0.5)
+            if (next === 1) setPanOffset({ x: 0, y: 0 })
+            return next
+          })
           break
         case 'zoom-100':
           setZoomLevel(1)
@@ -1522,10 +2087,26 @@ export default function Review() {
           handleSkip()
           break
         case 'toggle-tag':
-          if (photo) togglePhotoTag(photo.id)
+          handleToggleTag()
           break
         case 'toggle-zoom':
-          handleToggleZoom()
+          toggleStickyZoom()
+          break
+        case 'toggle-lock-zoom':
+          toggleLockZoom()
+          break
+        case 'toggle-lock-turn':
+          toggleLockTurn()
+          break
+        case 'rotate-cw':
+          handleRotate(90)
+          break
+        case 'rotate-ccw':
+          handleRotate(-90)
+          break
+        case 'rotate-reset':
+          setRotation(0)
+          toast('Rotation reset', { id: 'rotation-toast', icon: '↺' })
           break
         case 'zoom-fit':
           if (lightsOutLevel > 0) {
@@ -1533,6 +2114,7 @@ export default function Review() {
           } else {
             setZoomLevel(1)
             setZoomOrigin({ x: 50, y: 50 })
+            setPanOffset({ x: 0, y: 0 })
             setIsHoldingZoom(false)
           }
           break
@@ -1562,7 +2144,7 @@ export default function Review() {
 
     window.addEventListener('app:menu-action', handleAppMenuAction)
     return () => window.removeEventListener('app:menu-action', handleAppMenuAction)
-  }, [cycleLightsOut, cycleHud, setCanvasBackdrop, toggleScorePanel, filmstripPosition, setFilmstripPosition, handleReanalyze, handleStatus, handleSkip, photo, togglePhotoTag, handleToggleZoom, lightsOutLevel, cycleHistogram, setHistogramModeAndStore, workspaces, applyWorkspace, navigate, nextPhoto, prevPhoto, photos, triagePlacement, handleToggleBottomDockSwap, handleResetBottomSplitWidth, togglePanelVisibility])
+  }, [cycleLightsOut, cycleHud, setCanvasBackdrop, toggleScorePanel, filmstripPosition, setFilmstripPosition, handleReanalyze, handleStatus, handleSkip, photo, handleToggleTag, toggleStickyZoom, toggleLockZoom, toggleLockTurn, handleRotate, lightsOutLevel, cycleHistogram, setHistogramModeAndStore, workspaces, applyWorkspace, navigate, nextPhoto, prevPhoto, photos, triagePlacement, handleToggleBottomDockSwap, handleResetBottomSplitWidth, togglePanelVisibility])
 
   // Sync menu state with Review tool settings
   useEffect(() => {
@@ -1578,9 +2160,11 @@ export default function Review() {
       filmstripPosition,
       showCullingBar,
       isBottomCollapsed,
-      activeWorkspace: activeWorkspaceId
+      activeWorkspace: activeWorkspaceId,
+      lockZoom,
+      lockTurn
     })
-  }, [lightsOutLevel, hudMode, canvasBackdrop, showClipping, histogramMode, faceLoupeMode, scorePanelDock, filmstripPosition, showCullingBar, isBottomCollapsed, activeWorkspaceId])
+  }, [lightsOutLevel, hudMode, canvasBackdrop, showClipping, histogramMode, faceLoupeMode, scorePanelDock, filmstripPosition, showCullingBar, isBottomCollapsed, activeWorkspaceId, lockZoom, lockTurn])
 
   if (loading) {
     return (
@@ -1619,7 +2203,7 @@ export default function Review() {
 
       {/* ── Full-width Top Bar (spans the window above the docks; can never bleed over ScorePanel) ── */}
       <div className={clsx(
-        "flex items-center justify-between gap-1.5 md:gap-2 px-3 py-1.5 bg-neutral-950 border-b border-neutral-800 shrink-0 select-none overflow-hidden min-w-0 z-30 transition-opacity duration-300",
+        "flex items-center justify-between gap-1.5 sm:gap-2 px-3 py-1.5 bg-neutral-950 border-b border-neutral-800 shrink-0 select-none overflow-x-auto [scrollbar-width:none] min-w-0 z-30 transition-opacity duration-300",
         lightsOutLevel === 1 && "lights-out-dim",
         lightsOutLevel === 2 && "lights-out-blackout pointer-events-none"
       )}>
@@ -1712,7 +2296,7 @@ export default function Review() {
 
           {/* Tag Button */}
           <button
-            onClick={() => photo && togglePhotoTag(photo.id)}
+            onClick={handleToggleTag}
             className={clsx(
               'flex items-center gap-1 px-2 py-1 text-xs rounded-full border transition-colors cursor-pointer shrink-0',
               photo?.is_tagged
@@ -1728,6 +2312,37 @@ export default function Review() {
 
         {/* RIGHT ZONE: Consolidated Studio & View Tools */}
         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 min-w-0">
+          {/* Orientation & Lock Turn Controls */}
+          <div className="flex items-center p-0.5 rounded-lg bg-neutral-800/90 border border-neutral-700/60 shrink-0" title="Orientation & Lock Turn Controls">
+            <button
+              onClick={() => handleRotate(-90)}
+              className="p-1 rounded text-neutral-400 hover:text-white hover:bg-neutral-700/70 transition-colors cursor-pointer"
+              title="Rotate 90° Counter-Clockwise (Cmd+[)"
+            >
+              <RotateCcw size={12} />
+            </button>
+            <button
+              onClick={toggleLockTurn}
+              className={clsx(
+                "flex items-center gap-1 px-1.5 py-0.5 text-xs rounded transition-colors cursor-pointer",
+                lockTurn
+                  ? "bg-emerald-500/20 text-emerald-300 font-semibold border border-emerald-500/50"
+                  : "text-neutral-300 hover:text-white hover:bg-neutral-700/70"
+              )}
+              title="Lock Turn Between Photos — keep orientation across photos (⇧⌘T)"
+            >
+              {lockTurn ? <Lock size={11} className="text-emerald-400" /> : <Unlock size={11} className="text-neutral-400" />}
+              <span className="text-[11px] hidden sm:inline">{lockTurn ? "Turn Locked" : "Lock Turn"}</span>
+            </button>
+            <button
+              onClick={() => handleRotate(90)}
+              className="p-1 rounded text-neutral-400 hover:text-white hover:bg-neutral-700/70 transition-colors cursor-pointer"
+              title="Rotate 90° Clockwise (Cmd+])"
+            >
+              <RotateCw size={12} />
+            </button>
+          </div>
+
           {/* Info HUD (I) */}
           <button
             onClick={cycleHud}
@@ -2000,7 +2615,7 @@ export default function Review() {
             cullingBarVisible={showCullingBar}
             onStatus={handleStatus}
             onSkip={handleSkip}
-            onToggleTag={() => photo && togglePhotoTag(photo.id)}
+            onToggleTag={handleToggleTag}
           />
           {/* Resize handle on right edge */}
           <div
@@ -2013,6 +2628,84 @@ export default function Review() {
 
       {/* ── Main: Image area ── */}
       <div className="flex flex-col flex-1 min-w-0 min-h-0 relative overflow-hidden">
+        {/* BurstPick-style Burst Strip: frames, deltas, scores, Best Pick + one-click actions */}
+        {burstPhotos.length > 1 && (
+          <div className="shrink-0 border-b border-amber-500/25 bg-neutral-950/95 px-3 py-1.5 z-20">
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold text-amber-300 whitespace-nowrap" title="All frames sharing this burst group">
+                ⚡ Burst Sequence ({burstPhotos.length} frames)
+              </span>
+              <div className="flex items-center gap-1.5 overflow-x-auto flex-1 min-w-0 py-0.5 scrollbar-thin scrollbar-thumb-neutral-700">
+                {burstPhotos.map((p, idx) => {
+                  const isBest = burstBest?.id === p.id
+                  const isCurrent = p.id === photo.id
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => navigate(`/review/${p.id}`)}
+                      className={clsx(
+                        'relative flex-shrink-0 w-20 rounded-md overflow-hidden border-2 transition-all cursor-pointer group',
+                        isCurrent
+                          ? 'border-blue-500 ring-2 ring-blue-500/40'
+                          : isBest
+                          ? 'border-amber-400 ring-2 ring-amber-400/50'
+                          : p.status === 'accepted'
+                          ? 'border-emerald-500/70'
+                          : p.status === 'rejected'
+                          ? 'border-rose-500/50 opacity-60'
+                          : 'border-neutral-700 hover:border-neutral-400'
+                      )}
+                      title={`Frame #${idx + 1}: ${p.filename}${burstDeltas[idx] ? ` (${burstDeltas[idx]})` : ''} — score ${p.overall_score ?? '—'} — click to jump`}
+                    >
+                      <img
+                        src={api.getThumbnailUrl(p.id)}
+                        alt={p.filename}
+                        className="w-20 h-12 object-cover pointer-events-none"
+                        loading="lazy"
+                        draggable={false}
+                      />
+                      <span className="absolute top-0.5 left-0.5 bg-black/80 text-white text-[8px] font-mono font-bold px-1 rounded">
+                        #{idx + 1}
+                      </span>
+                      {isBest && (
+                        <span className="absolute top-0.5 right-0.5 bg-amber-400 text-black text-[8px] font-black px-1 rounded shadow" title="AI Best Pick">
+                          👑
+                        </span>
+                      )}
+                      <span className="absolute bottom-0 inset-x-0 bg-black/80 px-1 py-px flex items-center justify-between text-[8px] font-mono text-neutral-300">
+                        <span>{burstDeltas[idx] ?? ''}</span>
+                        <span className="font-bold text-neutral-100">{p.overall_score != null ? Math.round(p.overall_score) : '—'}</span>
+                        {p.has_closed_eyes ? <span title="Closed eyes">🙈</span> : <span title="Eyes open">👁</span>}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+              {burstBest && (
+                <span className="hidden xl:flex items-center gap-1 text-[10px] font-bold text-amber-300 whitespace-nowrap" title={`AI Best Pick: ${burstBest.filename}`}>
+                  <Crown size={11} className="text-amber-400 fill-amber-400/40" />
+                  Best Pick: <span className="font-mono font-semibold">{burstBest.filename}</span>
+                </span>
+              )}
+              <button
+                onClick={() => void handlePickBurstBest()}
+                className="flex items-center gap-1 px-2 py-1 text-[11px] font-bold rounded-lg bg-amber-500 hover:bg-amber-400 text-black transition-colors cursor-pointer whitespace-nowrap"
+                title={`Keep the best frame, reject the other ${burstPhotos.length - 1} (${getPrimaryShortcutKey('pick_burst_best')})`}
+              >
+                <Crown size={12} />
+                <span>Pick Best & Reject Rest</span>
+              </button>
+              <button
+                onClick={handleCompareBurst}
+                className="flex items-center gap-1 px-2 py-1 text-[11px] font-semibold rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700 transition-colors cursor-pointer whitespace-nowrap"
+                title="Open all burst frames side-by-side in Multi-Up Compare with mirrored zoom & pan"
+              >
+                <Columns size={12} className="text-indigo-400" />
+                <span>Compare Burst</span>
+              </button>
+            </div>
+          </div>
+        )}
         {/* Image viewer */}
         <div
           onClick={() => {
@@ -2065,49 +2758,89 @@ export default function Review() {
             </button>
           )}
 
-          {/* Image with status border & thumbnail blur-up placeholder */}
-          <div className="relative h-full w-full flex items-center justify-center overflow-hidden">
-            {!fullLoaded && (
+          {/* Double-buffered image: the active layer keeps a stable identity (no
+              photo.id key, so compositor layers survive transitions) and stays
+              at full opacity until the incoming frame is decoded, then swaps
+              with zero black frame. No unconstrained thumbnail is ever shown,
+              so there is no small-image pop. */}
+          <div ref={imageContainerRef} className="relative h-full w-full flex items-center justify-center overflow-hidden">
+            {displayedSrc ? (
               <img
-                src={api.getThumbnailUrl(photo.id)}
+                src={displayedSrc}
+                alt={photo.filename}
+                decoding="async"
+                ref={(el) => { mainImageRef.current = el; if (el && el.complete && el.naturalWidth > 0 && !fullLoaded) setFullLoaded(true) }}
+                onLoad={() => setFullLoaded(true)}
+                onError={() => { initApiToken().then(tok => { if (tok) setAuthToken(tok) }) }}
+                onClick={handleImageClick}
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+                onMouseLeave={handleMouseUp}
+                style={{
+                  transform: `translate(${panOffset.x}px, ${panOffset.y}px) rotate(${rotation}deg) scale(${zoomLevel})`,
+                  transformOrigin: `${zoomOrigin.x}% ${zoomOrigin.y}%`,
+                  transition: (isPanning || isHoldingZoom || isWheeling) ? 'none' : 'transform 180ms cubic-bezier(0.16, 1, 0.3, 1)',
+                  cursor: zoomLevel > 1 ? (isPanning ? 'grabbing' : 'grab') : 'zoom-in',
+                }}
+                className={clsx(
+                  'relative max-h-full max-w-full object-contain rounded-lg border-4 select-none shadow-2xl',
+                  statusColors[photo.status],
+                  fullLoaded ? 'opacity-100' : 'opacity-0'
+                )}
+              />
+            ) : (
+              <div className="max-h-full max-w-full w-full h-full rounded-lg bg-neutral-900/60 animate-pulse" aria-hidden="true" />
+            )}
+            {/* Incoming layer: hidden pre-decode probe. Once the browser has
+                the frame, force a GPU decode and atomically promote it. */}
+            {incomingSrc && incomingSrc !== displayedSrc && (
+              <img
+                key={`incoming-${displayedPhotoId}-${photoId}`}
+                src={incomingSrc}
                 alt=""
-                className="absolute max-h-full max-w-full object-contain rounded-lg opacity-90 transition-opacity pointer-events-none"
+                aria-hidden="true"
+                decoding="async"
+                className="hidden pointer-events-none"
+                onLoad={(e) => {
+                  const el = e.currentTarget
+                  const url = incomingSrc
+                  const id = photoId
+                  if (typeof el.decode === 'function') {
+                    el.decode().then(() => promoteIncoming(url, id)).catch(() => promoteIncoming(url, id))
+                  } else {
+                    promoteIncoming(url, id)
+                  }
+                }}
               />
             )}
-            <img
-              key={`${photo.id}-${authToken}`}
-              src={api.getFullImageUrl(photo.id)}
-              alt={photo.filename}
-              decoding="async"
-              ref={(el) => { if (el && el.complete && el.naturalWidth > 0 && !fullLoaded) setFullLoaded(true) }}
-              onLoad={() => setFullLoaded(true)}
-              onError={() => { initApiToken().then(tok => { if (tok) setAuthToken(tok) }) }}
-              onClick={handleToggleZoom}
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUp}
-              onMouseLeave={handleMouseUp}
-              style={{
-                transform: `scale(${zoomLevel})`,
-                transformOrigin: `${zoomOrigin.x}% ${zoomOrigin.y}%`,
-                transition: isHoldingZoom ? 'none' : 'transform 0.25s cubic-bezier(0.2, 0.9, 0.4, 1.1)',
-                cursor: zoomLevel > 1 ? 'zoom-out' : 'zoom-in',
-              }}
-              className={clsx(
-                'relative max-h-full max-w-full object-contain rounded-lg border-4 select-none shadow-2xl',
-                statusColors[photo.status],
-                fullLoaded ? 'opacity-100' : 'opacity-0'
-              )}
-            />
 
             {/* Exposure Clipping Overlay (Blinkies) */}
             <ClippingOverlay
               imageUrl={api.getFullImageUrl(photo.id)}
               scale={zoomLevel}
               origin={zoomOrigin}
-              isHoldingZoom={isHoldingZoom}
+              isHoldingZoom={isHoldingZoom || isPanning || isWheeling}
               enabled={showClipping}
             />
+
+            {/* Camera Focus Peaking Overlay (P): neon edge detection */}
+            <FocusPeakingOverlay
+              enabled={showFocusPeaking}
+              imageSrc={api.getFullImageUrl(photo.id)}
+              zoomTransform={`translate(${panOffset.x}px, ${panOffset.y}px) rotate(${rotation}deg) scale(${zoomLevel})`}
+              transformOrigin={`${zoomOrigin.x}% ${zoomOrigin.y}%`}
+              transition={(isPanning || isHoldingZoom || isWheeling) ? 'none' : 'transform 180ms cubic-bezier(0.16, 1, 0.3, 1)'}
+            />
+
+            {/* Composition Grid Overlay (O): thirds / golden / crosshair */}
+            <CompositionGridOverlay
+              mode={gridMode}
+              aspectRatio={photo.width && photo.height ? photo.width / photo.height : undefined}
+            />
+
+            {/* Transient Rating Flash HUD (A/R/U/Tag) */}
+            <RatingFlashHud rating={ratingFlash.rating} triggerKey={ratingFlash.key} />
 
             {/* Photographic Info HUD Overlay (I) */}
             <InfoOverlay
@@ -2119,22 +2852,26 @@ export default function Review() {
               onClose={() => { setHudMode(0); setReviewStorage('hud_mode', '0'); }}
             />
 
-            {/* Offscreen Pre-render DOM cache to keep Chromium compositor layers primed */}
+            {/* Offscreen Pre-render DOM cache, aligned with the active navigation
+                direction: predicted next frames first, one trailing frame for reversals */}
             <div className="hidden pointer-events-none select-none" aria-hidden="true">
-              {nextPhoto && (
-                <img
-                  src={api.getFullImageUrl(nextPhoto.id)}
-                  decoding="async"
-                  alt=""
-                />
-              )}
-              {prevPhoto && (
-                <img
-                  src={api.getFullImageUrl(prevPhoto.id)}
-                  decoding="async"
-                  alt=""
-                />
-              )}
+              {(() => {
+                const ahead1 = lookaheadDirection === 1 ? nextPhoto : prevPhoto
+                const ahead2 = lookaheadDirection === 1
+                  ? (currentIndex + 2 < photos.length ? photos[currentIndex + 2] : null)
+                  : (currentIndex - 2 >= 0 ? photos[currentIndex - 2] : null)
+                const trailing = lookaheadDirection === 1 ? prevPhoto : nextPhoto
+                return [ahead1, ahead2, trailing]
+                  .filter((p): p is Photo => !!p)
+                  .map(p => (
+                    <img
+                      key={p.id}
+                      src={getRamCachedImageUrl(p.id) ?? api.getFullImageUrl(p.id)}
+                      decoding="async"
+                      alt=""
+                    />
+                  ))
+              })()}
             </div>
             {/* Zoom Loupe Indicator Pill */}
             {zoomLevel > 1 && (
@@ -2172,6 +2909,61 @@ export default function Review() {
                 >
                   Fit Screen (Esc)
                 </button>
+                <button
+                  onClick={toggleLockZoom}
+                  className={clsx(
+                    "text-[11px] px-2 py-0.5 rounded-full cursor-pointer transition-colors border flex items-center gap-1",
+                    lockZoom
+                      ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/50 hover:bg-emerald-500/30"
+                      : "bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white border-neutral-700"
+                  )}
+                  title="Lock Zoom Between Photos — keep this magnification on the next photo (CmdOrCtrl+Shift+L)"
+                >
+                  {lockZoom ? <Lock size={11} className="text-emerald-400" /> : <Unlock size={11} className="text-neutral-400" />}
+                  <span>{lockZoom ? "Locked" : "Lock Zoom"}</span>
+                </button>
+              </div>
+            )}
+            {/* Rotation angle indicator & Lock Turn */}
+            {(rotation !== 0 || lockTurn) && (
+              <div className="absolute top-3 right-3 z-30 bg-black/85 backdrop-blur-md border border-neutral-700/80 text-white text-xs font-medium px-3 py-1.5 rounded-full shadow-2xl flex items-center gap-2 select-none animate-in fade-in duration-200">
+                <button
+                  onClick={() => handleRotate(-90)}
+                  className="text-neutral-400 hover:text-white p-0.5 rounded cursor-pointer transition-colors"
+                  title="Rotate 90° Counter-Clockwise (Cmd+[)"
+                >
+                  <RotateCcw size={12} />
+                </button>
+                <span className="font-mono text-xs">{Math.round(rotation)}°</span>
+                <button
+                  onClick={() => handleRotate(90)}
+                  className="text-neutral-400 hover:text-white p-0.5 rounded cursor-pointer transition-colors"
+                  title="Rotate 90° Clockwise (Cmd+])"
+                >
+                  <RotateCw size={12} />
+                </button>
+                <button
+                  onClick={toggleLockTurn}
+                  className={clsx(
+                    "text-[11px] px-2 py-0.5 rounded-full cursor-pointer transition-colors border flex items-center gap-1",
+                    lockTurn
+                      ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/50 hover:bg-emerald-500/30"
+                      : "bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white border-neutral-700"
+                  )}
+                  title="Lock Turn Between Photos — keep this rotation on the next photo (⇧⌘T)"
+                >
+                  {lockTurn ? <Lock size={11} className="text-emerald-400" /> : <Unlock size={11} className="text-neutral-400" />}
+                  <span>{lockTurn ? "Turn Locked" : "Lock Turn"}</span>
+                </button>
+                {rotation !== 0 && (
+                  <button
+                    onClick={() => setRotation(0)}
+                    className="text-[11px] text-neutral-300 hover:text-white bg-neutral-800 hover:bg-neutral-700 px-2 py-0.5 rounded-full cursor-pointer transition-colors border border-neutral-700"
+                    title="Reset Rotation (0°)"
+                  >
+                    Reset
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -2199,7 +2991,7 @@ export default function Review() {
                 isTagged={Boolean(photo.is_tagged)}
                 onStatus={handleStatus}
                 onSkip={handleSkip}
-                onToggleTag={() => photo && togglePhotoTag(photo.id)}
+                onToggleTag={handleToggleTag}
                 placement="bottom"
                 onSetPlacement={setTriagePlacement}
                 scale={triageScale}
@@ -2555,7 +3347,7 @@ export default function Review() {
                                 isTagged={Boolean(photo.is_tagged)}
                                 onStatus={handleStatus}
                                 onSkip={handleSkip}
-                                onToggleTag={() => photo && togglePhotoTag(photo.id)}
+                                onToggleTag={handleToggleTag}
                                 placement="sidebar"
                                 scale="standard"
                               />
@@ -2612,6 +3404,7 @@ export default function Review() {
                 onClose={() => setFilmstripPosition('hidden')}
                 onStartDrag={handleFilmstripStartDrag}
                 onSwapSides={isBottomSideBySide ? handleToggleBottomDockSwap : undefined}
+                onContextMenu={handleFilmstripContextMenu}
               />
             </div>
           )}
@@ -2665,7 +3458,7 @@ export default function Review() {
             isTagged={Boolean(photo.is_tagged)}
             onStatus={handleStatus}
             onSkip={handleSkip}
-            onToggleTag={() => photo && togglePhotoTag(photo.id)}
+            onToggleTag={handleToggleTag}
             placement={triagePlacement}
             onSetPlacement={setTriagePlacement}
             scale={triageScale}
@@ -2681,15 +3474,13 @@ export default function Review() {
           lightsOutLevel === 1 && "lights-out-dim",
           lightsOutLevel === 2 && "lights-out-blackout pointer-events-none"
         )}>
-          <span><strong className="text-neutral-200">A</strong> Accept</span>
+          <span><strong className="text-neutral-200">{getPrimaryShortcutKey('rate_accept')}</strong> Accept</span>
           <span>•</span>
-          <span><strong className="text-neutral-200">R</strong> Reject</span>
+          <span><strong className="text-neutral-200">{getPrimaryShortcutKey('rate_reject')}</strong> Reject</span>
           <span>•</span>
-          <span><strong className="text-neutral-200">Space</strong> Skip</span>
+          <span><strong className="text-neutral-200">{getPrimaryShortcutKey('toggle_zoom')}</strong> Zoom</span>
           <span>•</span>
-          <span><strong className="text-neutral-200">\</strong> Tag</span>
-          <span>•</span>
-          <span><strong className="text-neutral-200">Z</strong> Zoom</span>
+          <span><strong className="text-neutral-200">{getPrimaryShortcutKey('toggle_tag')}</strong> Tag</span>
           <span>•</span>
           <span><strong className="text-neutral-200">?</strong> All Shortcuts</span>
         </div>
@@ -2786,6 +3577,7 @@ export default function Review() {
                 onSetPosition={setFilmstripPosition}
                 onTogglePosition={() => setFilmstripPosition('bottom')}
                 onClose={() => setFilmstripPosition('hidden')}
+                onContextMenu={handleFilmstripContextMenu}
               />
             </div>
           </DraggablePanel>
@@ -2808,6 +3600,7 @@ export default function Review() {
             onSetPosition={setFilmstripPosition}
             onClose={() => setFilmstripPosition('hidden')}
             onStartDrag={handleFilmstripStartDrag}
+            onContextMenu={handleFilmstripContextMenu}
           />
         </div>
       )}
@@ -2872,7 +3665,7 @@ export default function Review() {
             cullingBarVisible={showCullingBar}
             onStatus={handleStatus}
             onSkip={handleSkip}
-            onToggleTag={() => photo && togglePhotoTag(photo.id)}
+            onToggleTag={handleToggleTag}
           />
         </div>
       )}
@@ -3127,7 +3920,7 @@ export default function Review() {
                 onSetTriagePlacement={setTriagePlacement}
                 onStatus={handleStatus}
                 onSkip={handleSkip}
-                onToggleTag={() => photo && togglePhotoTag(photo.id)}
+                onToggleTag={handleToggleTag}
               />
             </div>
           </DraggablePanel>
@@ -3231,6 +4024,30 @@ export default function Review() {
             <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-neutral-400 font-bold border-b border-neutral-800">
               View Options
             </div>
+
+            {/* Lock Zoom Across Photos */}
+            <button
+              onClick={toggleLockZoom}
+              className="w-full flex items-center justify-between px-3 py-1.5 text-xs text-left transition-colors hover:bg-white/5 cursor-pointer"
+              title="Keep magnification and framing across photos (Cmd+Shift+L)"
+            >
+              <span className={lockZoom ? 'text-emerald-300 font-semibold' : 'text-neutral-300'}>
+                Lock Zoom Across Photos <span className="text-neutral-500 font-mono text-[10px]">(⇧⌘L)</span>
+              </span>
+              {lockZoom ? <Lock size={13} className="text-emerald-400 shrink-0" /> : <Unlock size={13} className="text-neutral-500 shrink-0" />}
+            </button>
+
+            {/* Lock Turn Between Photos */}
+            <button
+              onClick={toggleLockTurn}
+              className="w-full flex items-center justify-between px-3 py-1.5 text-xs text-left transition-colors hover:bg-white/5 cursor-pointer"
+              title="Keep rotation angle across photos (Cmd+Shift+T)"
+            >
+              <span className={lockTurn ? 'text-emerald-300 font-semibold' : 'text-neutral-300'}>
+                Lock Turn Between Photos <span className="text-neutral-500 font-mono text-[10px]">(⇧⌘T)</span>
+              </span>
+              {lockTurn ? <Lock size={13} className="text-emerald-400 shrink-0" /> : <Unlock size={13} className="text-neutral-500 shrink-0" />}
+            </button>
 
             {/* Exposure Clipping */}
             <button
@@ -3535,6 +4352,16 @@ export default function Review() {
         onShowAll={showAllPanels}
         onResetDefaults={resetDefaultPanels}
       />
+
+      {/* Pro right-click menu for filmstrip thumbnails */}
+      {filmstripMenu && (
+        <PhotoContextMenu
+          photo={filmstripMenu.photo}
+          x={filmstripMenu.x}
+          y={filmstripMenu.y}
+          onClose={() => setFilmstripMenu(null)}
+        />
+      )}
     </div>
   )
 }
