@@ -851,6 +851,12 @@ function setupApplicationMenu(): void {
               checked: currentMenuState.activeTheme === 'espresso',
               click: () => send('set-theme', 'espresso')
             },
+            {
+              label: 'Carolina Blue',
+              type: 'radio' as const,
+              checked: currentMenuState.activeTheme === 'carolina',
+              click: () => send('set-theme', 'carolina')
+            },
             { type: 'separator' as const },
             {
               label: 'Open Themes Palette...',

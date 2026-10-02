@@ -108,6 +108,24 @@ export const THEME_PRESETS: ThemePreset[] = [
       swatchPreview: ['#141210', '#1c1917', '#292524', '#f59e0b'],
     },
   },
+  {
+    id: 'carolina',
+    name: 'Carolina Blue',
+    tagline: 'Iconic UNC Carolina Sky Blue accents with deep slate-navy surfaces',
+    colors: {
+      bgPrimary: '#090D13',
+      bgSecondary: '#101722',
+      bgCard: '#182230',
+      borderColor: '#243242',
+      accentColor: '#7BAFD4',
+      accentHover: '#93BFDF',
+      canvasBg: '#081018',
+      textPrimary: '#F0F6FC',
+      textSecondary: '#8B9BB0',
+      textMuted: '#52637A',
+      swatchPreview: ['#090D13', '#101722', '#182230', '#7BAFD4'],
+    },
+  },
 ]
 
 export function getStoredThemeId(): string {
