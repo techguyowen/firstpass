@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { FolderUp, Copy, Trash2, CheckCircle2, X, Folder, Sparkles, AlertTriangle, Target } from 'lucide-react'
 import { api } from '../api/client'
 import { usePhotosStore } from '../store/photosStore'
+import { nativeBridge } from '../utils/nativeBridge'
 import toast from 'react-hot-toast'
 import type { JobStatus, Photo } from '../types/photo'
 
@@ -91,7 +92,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
 
   const handleSelectFolder = async () => {
     try {
-      const folder = await window.electronAPI?.openFolderDialog()
+      const folder = await nativeBridge.openFolderDialog()
       if (folder) setDestFolder(folder)
     } catch (err) {
       console.error('Folder selection error:', err)

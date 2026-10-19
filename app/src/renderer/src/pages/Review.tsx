@@ -61,6 +61,7 @@ import {
   type FaceSelectionMeta,
 } from '../utils/faceZoom'
 import { playShutterSound, playRejectSound, playResetSound } from '../utils/audioFeedback'
+import { nativeBridge } from '../utils/nativeBridge'
 import clsx from 'clsx'
 
 export interface BottomGroup {
@@ -1463,7 +1464,7 @@ export default function Review() {
       localStorage.setItem('firstpass:lock_zoom', String(next))
       setReviewStorage('lock_zoom', String(next))
     } catch {}
-    window.electronAPI?.updateMenuState?.({ lockZoom: next, lockTurn: lockTurnRef.current })
+    nativeBridge.updateMenuState({ lockZoom: next, lockTurn: lockTurnRef.current })
     toast(next ? 'Lock Zoom Across Photos: ON' : 'Lock Zoom Across Photos: OFF', { id: 'lock-zoom-toast', icon: '🔒' })
   }, [])
 
@@ -1477,7 +1478,7 @@ export default function Review() {
       localStorage.setItem('firstpass:lock_turn', String(next))
       setReviewStorage('lock_turn', String(next))
     } catch {}
-    window.electronAPI?.updateMenuState?.({ lockTurn: next, lockZoom: lockZoomRef.current })
+    nativeBridge.updateMenuState({ lockTurn: next, lockZoom: lockZoomRef.current })
     toast(next ? 'Lock Turn Between Photos: ON' : 'Lock Turn Between Photos: OFF', { id: 'lock-turn-toast', icon: '🔒' })
   }, [])
 
@@ -2148,7 +2149,7 @@ export default function Review() {
 
   // Sync menu state with Review tool settings
   useEffect(() => {
-    window.electronAPI?.updateMenuState?.({
+    nativeBridge.updateMenuState({
       lightsOutLevel,
       hudMode,
       canvasBackdrop,

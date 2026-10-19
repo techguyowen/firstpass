@@ -8,6 +8,7 @@ import type { Photo } from '../types/photo'
 import { api } from '../api/client'
 import { usePhotosStore } from '../store/photosStore'
 import { playShutterSound, playRejectSound, playResetSound, playVipChime } from '../utils/audioFeedback'
+import { nativeBridge } from '../utils/nativeBridge'
 
 interface PhotoContextMenuProps {
   photo: Photo
@@ -128,7 +129,7 @@ export default function PhotoContextMenu({ photo, x, y, onClose }: PhotoContextM
 
   const handleReveal = run(async () => {
     try {
-      const ok = await window.electronAPI?.showItemInFolder?.(photo.path)
+      const ok = await nativeBridge.showItemInFolder(photo.path)
       if (!ok) toast.error('Could not reveal file in Finder')
     } catch {
       toast.error('Could not reveal file in Finder')

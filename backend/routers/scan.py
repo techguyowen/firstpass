@@ -19,10 +19,12 @@ router = APIRouter()
 IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.tiff', '.tif', '.webp', '.cr2', '.cr3', '.nef', '.arw', '.orf', '.raf', '.dng', '.rw2', '.heic'}
 RAW_EXTS = {'.cr2', '.cr3', '.nef', '.arw', '.orf', '.raf', '.dng', '.rw2'}
 
+_analysis_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="analysis_worker")
+
 def scan_worker(job_id: str, folder_path: str):
+    from ..database import SessionLocal
+    db = SessionLocal()
     try:
-        from ..database import SessionLocal
-        db = SessionLocal()
         
         # 1. Discover all image files
         found_files = []
@@ -166,8 +168,6 @@ def scan_worker(job_id: str, folder_path: str):
             jobs[job_id].message = "Scan completed. Ready for analysis."
             if scan_errors:
                 jobs[job_id].message += f" ({scan_errors} file(s) had warnings — see log.)"
-            
-        db.close()
         
         # Start analysis job automatically
         # To avoid circular dependency, we'll start it by invoking analyze endpoint logic 
@@ -184,15 +184,16 @@ def scan_worker(job_id: str, folder_path: str):
                 message="Starting automatic analysis..."
             )
         
-        # Fire and forget analysis
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        executor.submit(analyze_worker, analysis_job_id, None)
+        # Fire and forget analysis via persistent executor
+        _analysis_executor.submit(analyze_worker, analysis_job_id, None)
         
     except Exception as e:
         with jobs_lock:
             jobs[job_id].status = "error"
             jobs[job_id].message = f"Error during scan: {str(e)}"
         print(f"Scan error: {e}")
+    finally:
+        db.close()
 
 @router.post("/scan")
 def start_scan(req: ScanRequest, background_tasks: BackgroundTasks):

@@ -89,3 +89,14 @@ def analyze_aesthetic(image: np.ndarray) -> dict:
     except Exception as e:
         print(f"Error in analyze_aesthetic: {e}")
         return {"aesthetic_score": 50.0}
+    finally:
+        if torch.backends.mps.is_available() and hasattr(torch, "mps") and hasattr(torch.mps, "empty_cache"):
+            try:
+                torch.mps.empty_cache()
+            except Exception:
+                pass
+        elif torch.cuda.is_available():
+            try:
+                torch.cuda.empty_cache()
+            except Exception:
+                pass

@@ -12,6 +12,7 @@ import { usePhotosStore } from '../store/photosStore'
 import { matchesShortcut, subscribeShortcuts } from '../utils/shortcutsManager'
 import { playShutterSound, playRejectSound, playResetSound } from '../utils/audioFeedback'
 import { STRICTNESS_PRESETS, closestStrictnessIndex } from '../utils/strictness'
+import { nativeBridge } from '../utils/nativeBridge'
 import { api } from '../api/client'
 import type { Photo } from '../types/photo'
 import PhotoCard from '../components/PhotoCard'
@@ -600,13 +601,13 @@ export default function Gallery() {
 
   // Sync menu state with Gallery options
   useEffect(() => {
-    window.electronAPI?.updateMenuState?.({
+    nativeBridge.updateMenuState({
       collapseBursts: viewOptions.collapseBursts
     })
   }, [viewOptions.collapseBursts])
 
   const handleImport = async (clearPrevious = false) => {
-    const folderPath = await window.electronAPI?.openFolderDialog()
+    const folderPath = await nativeBridge.openFolderDialog()
     if (!folderPath) return
     try {
       await startScan(folderPath, clearPrevious)

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CheckCircle2, XCircle, PanelBottom, PanelRight, ChevronDown, ChevronRight, GripVertical, Move, X, ArrowLeftRight, Eye, EyeOff, Crown } from 'lucide-react'
 import clsx from 'clsx'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { api } from '../api/client'
 import { preloadAndDecodeImage } from '../utils/imagePreloader'
 import type { Photo } from '../types/photo'
@@ -75,7 +76,6 @@ export default function Filmstrip({
   onContextMenu,
 }: FilmstripProps) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const activeThumbRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const [showMenu, setShowMenu] = useState(false)
   const [thumbSize, setThumbSize] = useState<ThumbSize>(loadThumbSize)
@@ -154,17 +154,6 @@ export default function Filmstrip({
         ? 'h-24 w-30'
         : 'h-20 w-24'
 
-  // Auto-scroll the active thumbnail into view
-  useEffect(() => {
-    if (activeThumbRef.current) {
-      activeThumbRef.current.scrollIntoView({
-        behavior: 'smooth',
-        block: 'nearest',
-        inline: 'center',
-      })
-    }
-  }, [currentPhotoId, position, statusFilter])
-
   // Close the options menu on outside click / Escape
   useEffect(() => {
     if (!showMenu) return
@@ -189,6 +178,40 @@ export default function Filmstrip({
   const isFloating = position === 'floating'
   // Floating renders horizontally like the bottom dock, filling its DraggablePanel body.
   const isHorizontal = !isSide
+
+  // Fixed thumbnail pixel dims matching thumbClass above (compact 80x64,
+  // standard 96x80, large 120x96). The virtualizer stride adds the 8px
+  // inter-item gap so only visible + nearby thumbs mount in the DOM.
+  const thumbPx =
+    thumbSize === 'compact'
+      ? { w: 80, h: 64 }
+      : thumbSize === 'large'
+        ? { w: 120, h: 96 }
+        : { w: 96, h: 80 }
+  const itemStride = (isHorizontal ? thumbPx.w : thumbPx.h) + 8
+
+  const selectedIndex = useMemo(
+    () => visiblePhotos.findIndex((p) => p.id === currentPhotoId),
+    [visiblePhotos, currentPhotoId]
+  )
+
+  const stripVirtualizer = useVirtualizer({
+    count: visiblePhotos.length,
+    getScrollElement: () => containerRef.current,
+    estimateSize: () => itemStride,
+    horizontal: isHorizontal,
+    overscan: 12,
+    getItemKey: (index) => visiblePhotos[index]?.id ?? index,
+  })
+
+  // Auto-scroll the active thumbnail into view. Virtualizer-driven (instead
+  // of scrollIntoView) since the selected item may not be mounted yet.
+  // thumbSize is a dep: changing density changes item stride, which would
+  // otherwise leave the selected item outside the mounted window.
+  useEffect(() => {
+    if (selectedIndex < 0) return
+    stripVirtualizer.scrollToIndex(selectedIndex, { align: 'center', behavior: 'smooth' })
+  }, [currentPhotoId, position, statusFilter, thumbSize, selectedIndex, stripVirtualizer])
 
   const setPos = (pos: FilmstripPos) => {
     setShowMenu(false)
@@ -420,138 +443,172 @@ export default function Filmstrip({
       <div
         ref={containerRef}
         className={clsx(
-          'flex-1 min-h-0 p-2 gap-2 scrollbar-thin scrollbar-thumb-neutral-700',
+          'flex-1 min-h-0 p-2 scrollbar-thin scrollbar-thumb-neutral-700',
           isHorizontal
-            ? 'flex flex-row items-center overflow-x-auto overflow-y-hidden'
-            : 'flex flex-col items-center overflow-y-auto overflow-x-hidden'
+            ? 'overflow-x-auto overflow-y-hidden'
+            : 'overflow-y-auto overflow-x-hidden'
         )}
       >
-        {visiblePhotos.map((photo, idx) => {
-          const isActive = photo.id === currentPhotoId
-          const isDimmedRejected = photo.status === 'rejected' && dimRejected
-          // Burst connector adjacency: neighbors sharing the same burst_group_id.
-          const burstId = photo.burst_group_id ?? null
-          const prevInBurst = burstId !== null && idx > 0 && visiblePhotos[idx - 1].burst_group_id === burstId
-          const nextInBurst = burstId !== null && idx < visiblePhotos.length - 1 && visiblePhotos[idx + 1].burst_group_id === burstId
-          const inBurstRun = prevInBurst || nextInBurst
-          const isBurstLeader = burstId !== null && burstLeaders.has(photo.id)
-          return (
-            <button
-              key={photo.id}
-              ref={isActive ? activeThumbRef : null}
-              onClick={() => onSelectPhoto(photo.id)}
-              onContextMenu={onContextMenu ? (e) => onContextMenu(e, photo) : undefined}
-              onMouseEnter={() => preloadAndDecodeImage(api.getFullImageUrl(photo.id))}
-              className={clsx(
-                'relative group flex-shrink-0 rounded-lg overflow-hidden transition-all duration-150 cursor-pointer bg-neutral-900 border-2',
-                thumbClass,
-                isBottom && fillHeight && 'max-h-24',
-                isDimmedRejected && !isActive && 'opacity-25 grayscale-[60%] hover:opacity-75 hover:grayscale-0',
-                isDimmedRejected && isActive && 'opacity-60 grayscale-[25%] border-rose-500/80 ring-2 ring-rose-500/40',
-                !isDimmedRejected && isActive
-                  && 'border-blue-500 ring-2 ring-blue-500/30 shadow-lg shadow-blue-500/20 scale-105 z-10',
-                !isDimmedRejected && !isActive
-                  && 'border-neutral-800 hover:border-neutral-600 opacity-75 hover:opacity-100'
-              )}
-              title={photo.filename}
-            >
-              {/* Image */}
-              <img
-                src={api.getThumbnailUrl(photo.id)}
-                alt={photo.filename}
-                className="w-full h-full object-cover"
-                loading="lazy"
-                draggable={false}
-              />
-
-              {/* Burst sequence connector bracket (top edge / left edge) */}
-              {inBurstRun && (
-                isHorizontal ? (
-                  <div
-                    className="absolute top-0 inset-x-0 flex justify-center pointer-events-none z-10"
-                    title={`Burst sequence (${burstId})`}
-                    aria-hidden="true"
-                  >
-                    <div
-                      className={clsx(
-                        'h-[3px] w-full bg-violet-400/90 shadow-[0_0_6px_rgba(167,139,250,0.9)]',
-                        !prevInBurst && 'rounded-l-full ml-1',
-                        !nextInBurst && 'rounded-r-full mr-1'
-                      )}
-                    />
-                  </div>
-                ) : (
-                  <div
-                    className="absolute left-0 inset-y-0 flex items-center pointer-events-none z-10"
-                    title={`Burst sequence (${burstId})`}
-                    aria-hidden="true"
-                  >
-                    <div
-                      className={clsx(
-                        'w-[3px] h-full bg-violet-400/90 shadow-[0_0_6px_rgba(167,139,250,0.9)]',
-                        !prevInBurst && 'rounded-t-full mt-1',
-                        !nextInBurst && 'rounded-b-full mb-1'
-                      )}
-                    />
-                  </div>
-                )
-              )}
-
-              {/* Burst leader crown: highest score in the burst */}
-              {isBurstLeader && (
-                <div
-                  className="absolute bottom-5 left-1 z-10 flex items-center gap-0.5 bg-amber-400/95 text-neutral-950 text-[9px] px-1 py-px rounded-full font-black shadow"
-                  title="Burst leader: highest AI score in this burst"
+        <div
+          style={
+            isHorizontal
+              ? { width: `${stripVirtualizer.getTotalSize()}px`, height: '100%', position: 'relative' }
+              : { height: `${stripVirtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }
+          }
+        >
+          {stripVirtualizer.getVirtualItems().map((virtualItem) => {
+            const photo = visiblePhotos[virtualItem.index]
+            if (!photo) return null
+            const idx = virtualItem.index
+            const isActive = photo.id === currentPhotoId
+            const isDimmedRejected = photo.status === 'rejected' && dimRejected
+            // Burst connector adjacency: neighbors sharing the same burst_group_id.
+            const burstId = photo.burst_group_id ?? null
+            const prevInBurst = burstId !== null && idx > 0 && visiblePhotos[idx - 1].burst_group_id === burstId
+            const nextInBurst = burstId !== null && idx < visiblePhotos.length - 1 && visiblePhotos[idx + 1].burst_group_id === burstId
+            const inBurstRun = prevInBurst || nextInBurst
+            const isBurstLeader = burstId !== null && burstLeaders.has(photo.id)
+            return (
+              <div
+                key={virtualItem.key}
+                style={
+                  isHorizontal
+                    ? {
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        height: '100%',
+                        transform: `translateX(${virtualItem.start}px)`,
+                        display: 'flex',
+                        alignItems: 'center',
+                      }
+                    : {
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        transform: `translateY(${virtualItem.start}px)`,
+                        display: 'flex',
+                        justifyContent: 'center',
+                      }
+                }
+              >
+                <button
+                  onClick={() => onSelectPhoto(photo.id)}
+                  onContextMenu={onContextMenu ? (e) => onContextMenu(e, photo) : undefined}
+                  onMouseEnter={() => preloadAndDecodeImage(api.getFullImageUrl(photo.id))}
+                  className={clsx(
+                    'relative group flex-shrink-0 rounded-lg overflow-hidden transition-all duration-150 cursor-pointer bg-neutral-900 border-2',
+                    thumbClass,
+                    isBottom && fillHeight && 'max-h-24',
+                    isDimmedRejected && !isActive && 'opacity-25 grayscale-[60%] hover:opacity-75 hover:grayscale-0',
+                    isDimmedRejected && isActive && 'opacity-60 grayscale-[25%] border-rose-500/80 ring-2 ring-rose-500/40',
+                    !isDimmedRejected && isActive
+                      && 'border-blue-500 ring-2 ring-blue-500/30 shadow-lg shadow-blue-500/20 scale-105 z-10',
+                    !isDimmedRejected && !isActive
+                      && 'border-neutral-800 hover:border-neutral-600 opacity-75 hover:opacity-100'
+                  )}
+                  title={photo.filename}
                 >
-                  <Crown size={9} strokeWidth={3} />
-                  <span>Leader</span>
-                </div>
-              )}
-
-              {/* Status Indicator (top-right) */}
-              <div className="absolute top-1 right-1 flex items-center gap-0.5 z-10">
-                {photo.status === 'accepted' && (
-                  <div className="w-3.5 h-3.5 bg-emerald-600 rounded-full flex items-center justify-center shadow">
-                    <CheckCircle2 size={10} className="text-white" />
+                  {/* Image */}
+                  <img
+                    src={api.getThumbnailUrl(photo.id)}
+                    alt={photo.filename}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                    draggable={false}
+                  />
+    
+                  {/* Burst sequence connector bracket (top edge / left edge) */}
+                  {inBurstRun && (
+                    isHorizontal ? (
+                      <div
+                        className="absolute top-0 inset-x-0 flex justify-center pointer-events-none z-10"
+                        title={`Burst sequence (${burstId})`}
+                        aria-hidden="true"
+                      >
+                        <div
+                          className={clsx(
+                            'h-[3px] w-full bg-violet-400/90 shadow-[0_0_6px_rgba(167,139,250,0.9)]',
+                            !prevInBurst && 'rounded-l-full ml-1',
+                            !nextInBurst && 'rounded-r-full mr-1'
+                          )}
+                        />
+                      </div>
+                    ) : (
+                      <div
+                        className="absolute left-0 inset-y-0 flex items-center pointer-events-none z-10"
+                        title={`Burst sequence (${burstId})`}
+                        aria-hidden="true"
+                      >
+                        <div
+                          className={clsx(
+                            'w-[3px] h-full bg-violet-400/90 shadow-[0_0_6px_rgba(167,139,250,0.9)]',
+                            !prevInBurst && 'rounded-t-full mt-1',
+                            !nextInBurst && 'rounded-b-full mb-1'
+                          )}
+                        />
+                      </div>
+                    )
+                  )}
+    
+                  {/* Burst leader crown: highest score in the burst */}
+                  {isBurstLeader && (
+                    <div
+                      className="absolute bottom-5 left-1 z-10 flex items-center gap-0.5 bg-amber-400/95 text-neutral-950 text-[9px] px-1 py-px rounded-full font-black shadow"
+                      title="Burst leader: highest AI score in this burst"
+                    >
+                      <Crown size={9} strokeWidth={3} />
+                      <span>Leader</span>
+                    </div>
+                  )}
+    
+                  {/* Status Indicator (top-right) */}
+                  <div className="absolute top-1 right-1 flex items-center gap-0.5 z-10">
+                    {photo.status === 'accepted' && (
+                      <div className="w-3.5 h-3.5 bg-emerald-600 rounded-full flex items-center justify-center shadow">
+                        <CheckCircle2 size={10} className="text-white" />
+                      </div>
+                    )}
+                    {photo.status === 'rejected' && (
+                      dimRejected ? (
+                        <div className="min-w-[14px] h-3.5 px-0.5 bg-rose-600/90 rounded-full flex items-center justify-center shadow text-white text-[9px] font-black leading-none" title="Rejected (dimmed in place)">
+                          ✕
+                        </div>
+                      ) : (
+                        <div className="w-3.5 h-3.5 bg-rose-600 rounded-full flex items-center justify-center shadow">
+                          <XCircle size={10} className="text-white" />
+                        </div>
+                      )
+                    )}
                   </div>
-                )}
-                {photo.status === 'rejected' && (
-                  dimRejected ? (
-                    <div className="min-w-[14px] h-3.5 px-0.5 bg-rose-600/90 rounded-full flex items-center justify-center shadow text-white text-[9px] font-black leading-none" title="Rejected (dimmed in place)">
-                      ✕
+    
+                  {/* Tagged badge (top-left) */}
+                  {photo.is_tagged && (
+                    <div
+                      className="absolute top-1 left-1 bg-amber-500 text-black text-[9px] px-1 py-0.2 rounded font-black shadow z-10"
+                      title="Tagged (\)"
+                    >
+                      🏷️
                     </div>
-                  ) : (
-                    <div className="w-3.5 h-3.5 bg-rose-600 rounded-full flex items-center justify-center shadow">
-                      <XCircle size={10} className="text-white" />
-                    </div>
-                  )
-                )}
+                  )}
+    
+                  {/* Score / Filename Footer (bottom) */}
+                  <div className="absolute bottom-0 inset-x-0 bg-black/80 px-1 py-0.5 flex items-center justify-between text-[9px] font-mono text-neutral-300">
+                    <span className="truncate max-w-[50px] text-[8px] text-neutral-400">
+                      {photo.filename.replace(/\.[^/.]+$/, '')}
+                    </span>
+                    {photo.overall_score !== null && (
+                      <span className={clsx('font-bold ml-auto', scoreColor(photo.overall_score))}>
+                        {Math.round(photo.overall_score)}
+                      </span>
+                    )}
+                  </div>
+                </button>
               </div>
-
-              {/* Tagged badge (top-left) */}
-              {photo.is_tagged && (
-                <div
-                  className="absolute top-1 left-1 bg-amber-500 text-black text-[9px] px-1 py-0.2 rounded font-black shadow z-10"
-                  title="Tagged (\)"
-                >
-                  🏷️
-                </div>
-              )}
-
-              {/* Score / Filename Footer (bottom) */}
-              <div className="absolute bottom-0 inset-x-0 bg-black/80 px-1 py-0.5 flex items-center justify-between text-[9px] font-mono text-neutral-300">
-                <span className="truncate max-w-[50px] text-[8px] text-neutral-400">
-                  {photo.filename.replace(/\.[^/.]+$/, '')}
-                </span>
-                {photo.overall_score !== null && (
-                  <span className={clsx('font-bold ml-auto', scoreColor(photo.overall_score))}>
-                    {Math.round(photo.overall_score)}
-                  </span>
-                )}
-              </div>
-            </button>
-          )
-        })}
+            )
+          })}
+        </div>
       </div>
     </div>
   )

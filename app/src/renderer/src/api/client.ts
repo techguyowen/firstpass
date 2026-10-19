@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { nativeBridge } from '../utils/nativeBridge'
 import type {
   HealthResponse, ScanResponse, JobStatus, PhotosResponse, Photo,
   DuplicateGroup, ExportRequest, ExportResult, Settings,
@@ -16,8 +17,8 @@ const axiosInstance = axios.create({
 
 let cachedToken: string | null = (() => {
   try {
-    if (typeof window !== 'undefined' && window.electronAPI?.getApiSecretSync) {
-      const tok = window.electronAPI.getApiSecretSync()
+    if (typeof window !== 'undefined') {
+      const tok = nativeBridge.getApiSecretSync()
       if (tok) return tok
     }
     return localStorage.getItem('firstpass_api_token') || localStorage.getItem('photo_culler_api_token') || null
@@ -27,9 +28,9 @@ let cachedToken: string | null = (() => {
 })()
 
 export async function initApiToken(): Promise<string> {
-  if (!cachedToken && typeof window !== 'undefined' && window.electronAPI?.getApiSecret) {
+  if (!cachedToken && typeof window !== 'undefined') {
     try {
-      const tok = await window.electronAPI.getApiSecret()
+      const tok = await nativeBridge.getApiSecret()
       if (tok) {
         cachedToken = tok
         try {
@@ -40,7 +41,7 @@ export async function initApiToken(): Promise<string> {
         window.dispatchEvent(new CustomEvent('firstpass:token-ready', { detail: cachedToken }))
       }
     } catch (err) {
-      console.warn('Failed to get API secret from Electron:', err)
+      console.warn('Failed to get API secret:', err)
     }
   }
   return cachedToken || ''
@@ -65,7 +66,7 @@ axiosInstance.interceptors.request.use(async (config) => {
 axiosInstance.interceptors.response.use(
   (response) => response,
   async (error) => {
-    if (error.response?.status === 401 && typeof window !== 'undefined' && window.electronAPI?.getApiSecret) {
+    if (error.response?.status === 401 && typeof window !== 'undefined') {
       cachedToken = null
       await initApiToken()
     }

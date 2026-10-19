@@ -16,6 +16,7 @@ import {
 } from '../utils/faceZoom'
 import { usePhotosStore } from '../store/photosStore'
 import { matchesShortcut, subscribeShortcuts } from '../utils/shortcutsManager'
+import { nativeBridge } from '../utils/nativeBridge'
 import type { Photo } from '../types/photo'
 import clsx from 'clsx'
 import FirstPassLoader from '../components/FirstPassLoader'
@@ -253,7 +254,7 @@ export const Compare: React.FC = () => {
       localStorage.setItem('firstpass:lock_zoom', String(next))
       localStorage.setItem('firstpass_lock_zoom', String(next))
     } catch {}
-    window.electronAPI?.updateMenuState?.({ lockZoom: next, lockTurn: lockTurnRef.current })
+    nativeBridge.updateMenuState({ lockZoom: next, lockTurn: lockTurnRef.current })
     toast(next ? 'Lock Zoom Across Photos: ON' : 'Lock Zoom Across Photos: OFF', { id: 'lock-zoom-toast', icon: '🔒' })
   }, [])
 
@@ -264,13 +265,13 @@ export const Compare: React.FC = () => {
       localStorage.setItem('firstpass:lock_turn', String(next))
       localStorage.setItem('firstpass_lock_turn', String(next))
     } catch {}
-    window.electronAPI?.updateMenuState?.({ lockTurn: next, lockZoom: lockZoomRef.current })
+    nativeBridge.updateMenuState({ lockTurn: next, lockZoom: lockZoomRef.current })
     toast(next ? 'Lock Turn Across Photos: ON' : 'Lock Turn Across Photos: OFF', { id: 'lock-turn-toast', icon: '🔒' })
   }, [])
 
   // Keep the native menu checkbox in sync with this page's lock state
   useEffect(() => {
-    window.electronAPI?.updateMenuState?.({ lockZoom, lockTurn })
+    nativeBridge.updateMenuState({ lockZoom, lockTurn })
   }, [lockZoom, lockTurn])
 
   // Per-slot pinch-to-zoom / pan / rotate via scroll & trackpad gestures

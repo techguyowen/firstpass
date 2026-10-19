@@ -1,7 +1,7 @@
 # FirstPass 📷
 
 ![Build & Test](https://img.shields.io/badge/Build-Passing-emerald?style=flat-square)
-![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)
+![License](https://img.shields.io/badge/License-AGPL--3.0-blue?style=flat-square)
 ![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-neutral?style=flat-square)
 ![Privacy](https://img.shields.io/badge/Privacy-100%25%20On--Device%20AI-purple?style=flat-square)
 
@@ -152,5 +152,5 @@ FirstPass is committed to photographer privacy:
 ---
 
 ## License
-
-MIT License. See [LICENSE](LICENSE) for details.
+ 
+GNU Affero General Public License v3.0 (AGPLv3). See [LICENSE](LICENSE) for details.

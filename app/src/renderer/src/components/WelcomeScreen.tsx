@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Zap, Image as ImageIcon, Layers } from 'lucide-react';
+import { Zap, Image as ImageIcon, Layers, Github } from 'lucide-react';
 import { usePhotosStore } from '../store/photosStore';
+import { nativeBridge } from '../utils/nativeBridge';
 import ProgressModal from './ProgressModal';
 import FirstPassLoader from './FirstPassLoader';
 import WalkthroughModal from './WalkthroughModal';
@@ -11,7 +12,7 @@ export default function WelcomeScreen({ onImport, onOpenWalkthrough }: { onImpor
 
   const handleImport = async () => {
     if (onImport) { onImport(); return; }
-    const folderPath = await window.electronAPI?.openFolderDialog();
+    const folderPath = await nativeBridge.openFolderDialog();
     if (folderPath) {
       await startScan(folderPath);
     }
@@ -41,12 +42,24 @@ export default function WelcomeScreen({ onImport, onOpenWalkthrough }: { onImpor
           <span className="text-2xl">📁</span> Import Photo Folder
         </button>
 
-        <button
-          onClick={handleOpenWalkthrough}
-          className="mt-4 bg-transparent hover:bg-gray-800 text-gray-300 hover:text-white font-semibold py-2.5 px-6 rounded-xl text-sm flex items-center justify-center gap-2 mx-auto border border-gray-700 transition-colors"
-        >
-          <span className="text-lg">📖</span> App Walkthrough & Guide
-        </button>
+        <div className="flex items-center justify-center gap-3 mt-4">
+          <button
+            onClick={handleOpenWalkthrough}
+            className="bg-transparent hover:bg-gray-800 text-gray-300 hover:text-white font-semibold py-2.5 px-6 rounded-xl text-sm flex items-center justify-center gap-2 border border-gray-700 transition-colors"
+          >
+            <span className="text-lg">📖</span> App Walkthrough & Guide
+          </button>
+
+          <a
+            href="https://github.com/techguyowen/firstpass"
+            target="_blank"
+            rel="noreferrer"
+            className="bg-transparent hover:bg-gray-800 text-gray-400 hover:text-white font-semibold py-2.5 px-5 rounded-xl text-sm flex items-center justify-center gap-2 border border-gray-700/80 transition-colors"
+            title="View FirstPass source code on GitHub"
+          >
+            <Github size={16} /> GitHub
+          </a>
+        </div>
         <WalkthroughModal isOpen={showWalkthrough} onClose={() => setShowWalkthrough(false)} />
 
         <div className="grid grid-cols-3 gap-6 mt-16 text-left">

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { usePhotosStore } from './store/photosStore';
-import { Settings as SettingsIcon, LayoutGrid, Columns, Download, HelpCircle, BookOpen, Eye, Palette, FolderUp, ListFilter } from 'lucide-react';
+import { Settings as SettingsIcon, LayoutGrid, Columns, Download, HelpCircle, BookOpen, Eye, Palette, FolderUp, ListFilter, Github } from 'lucide-react';
 import Gallery from './pages/Gallery';
 import Review from './pages/Review';
 import Settings from './pages/Settings';
@@ -17,6 +17,7 @@ import TargetDeliveryModal from './components/TargetDeliveryModal';
 import VipFacesModal from './components/VipFacesModal';
 import { applyTheme, getStoredThemeId } from './theme/themes';
 import { api } from './api/client';
+import { nativeBridge } from './utils/nativeBridge';
 import toast from 'react-hot-toast';
 import type { UpdateCheckResponse } from './types/photo';
 import FirstPassLoader from './components/FirstPassLoader';
@@ -135,15 +136,15 @@ export default function App() {
     };
     window.addEventListener('app:open-export', handleOpenExport);
 
-    const cleanShortcuts = window.electronAPI?.onOpenShortcuts?.(() => {
+    const cleanShortcuts = nativeBridge.onOpenShortcuts(() => {
       setShowShortcutsModal(true);
     });
-    const cleanNavigate = window.electronAPI?.onNavigateTo?.((route: string) => {
+    const cleanNavigate = nativeBridge.onNavigateTo((route: string) => {
       navigate(route);
     });
 
     // Native Application Menu Action Listener
-    const cleanMenu = window.electronAPI?.onMenuAction?.(async (action: string, payload?: any) => {
+    const cleanMenu = nativeBridge.onMenuAction(async (action: string, payload?: any) => {
       switch (action) {
         case 'open-export':
         case 'quick-export':
@@ -226,11 +227,11 @@ export default function App() {
         case 'set-theme':
           if (payload) {
             applyTheme(payload);
-            window.electronAPI?.updateMenuState?.({ activeTheme: payload });
+            nativeBridge.updateMenuState({ activeTheme: payload });
           }
           break;
         case 'import-folder': {
-          const folderPath = await window.electronAPI?.openFolderDialog();
+          const folderPath = await nativeBridge.openFolderDialog();
           if (folderPath) {
             try {
               await startScan(folderPath, false);
@@ -381,7 +382,7 @@ export default function App() {
 
   // Sync menu state whenever route or autoAdvance changes
   useEffect(() => {
-    window.electronAPI?.updateMenuState?.({
+    nativeBridge.updateMenuState({
       currentRoute: location.pathname,
       activeTheme: getStoredThemeId(),
       autoAdvance
@@ -579,6 +580,17 @@ export default function App() {
         >
           <BookOpen size={22} />
         </button>
+
+        {/* GitHub Repository Link */}
+        <a
+          href="https://github.com/techguyowen/firstpass"
+          target="_blank"
+          rel="noreferrer"
+          title="FirstPass on GitHub (Source Code & Issues)"
+          className="p-3 rounded-xl transition-all text-gray-400 hover:text-white hover:bg-gray-800 cursor-pointer flex items-center justify-center"
+        >
+          <Github size={22} />
+        </a>
 
         <button
           onClick={() => navigate('/settings')}

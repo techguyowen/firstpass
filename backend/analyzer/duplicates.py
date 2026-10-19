@@ -6,9 +6,9 @@ from typing import List, Dict, Tuple, Optional, Any
 
 def compute_hash(image_path: str) -> str:
     try:
-        img = Image.open(image_path)
-        phash = imagehash.phash(img)
-        return str(phash)
+        with Image.open(image_path) as img:
+            phash = imagehash.phash(img)
+            return str(phash)
     except Exception as e:
         print(f"Error computing hash for {image_path}: {e}")
         return ""

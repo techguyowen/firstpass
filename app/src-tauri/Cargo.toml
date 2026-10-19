@@ -1,0 +1,27 @@
+[package]
+name = "firstpass"
+version = "1.0.1"
+edition = "2021"
+description = "FirstPass desktop shell (Tauri v2)"
+license = "AGPL-3.0-only"
+
+[lib]
+name = "firstpass_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.2", features = [] }
+
+[dependencies]
+tauri = { version = "2.2", features = ["tray-icon"] }
+tauri-plugin-dialog = "2.2"
+tauri-plugin-opener = "2.2"
+tauri-plugin-shell = "2.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rand = "0.8"
+dirs = "5.0"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

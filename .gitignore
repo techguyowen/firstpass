@@ -95,3 +95,7 @@ temp/
 scripts/test_*.py
 scripts/verify_*.py
 scripts/simulate_*.py
+
+# --- Rust & Tauri Build Outputs ---
+target/
+app/src-tauri/target/

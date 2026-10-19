@@ -15,8 +15,8 @@ from ..analyzer.duplicates import detect_burst_groups, detect_scenes
 router = APIRouter()
 
 def analyze_worker(job_id: str, photo_ids: list[int] = None, force_reanalyze: bool = False):
+    db = SessionLocal()
     try:
-        db = SessionLocal()
         settings = db.query(Settings).first()
         if not settings:
             settings = Settings()
@@ -74,6 +74,7 @@ def analyze_worker(job_id: str, photo_ids: list[int] = None, force_reanalyze: bo
         num_workers = min(max(2, (os.cpu_count() or 4) - 1), 8)
         photo_items = [(p.id, p.path) for p in photos_to_analyze]
         completed_count = 0
+        uncommitted_count = 0
 
         def _process_one(item):
             pid, ppath = item
@@ -133,8 +134,12 @@ def analyze_worker(job_id: str, photo_ids: list[int] = None, force_reanalyze: bo
                             photo.iso = exif_meta.get("iso") or photo.iso
                             photo.focal_length = exif_meta.get("focal_length") or photo.focal_length
 
-                            db.commit()
+                            uncommitted_count += 1
+                            if uncommitted_count >= 25:
+                                db.commit()
+                                uncommitted_count = 0
                 except Exception as ex:
+                    db.rollback()
                     print(f"Error processing photo: {ex}")
 
                 completed_count += 1
@@ -142,6 +147,10 @@ def analyze_worker(job_id: str, photo_ids: list[int] = None, force_reanalyze: bo
                     with jobs_lock:
                         if job_id in jobs:
                             jobs[job_id].progress = completed_count
+
+            if uncommitted_count > 0:
+                db.commit()
+                uncommitted_count = 0
                         
         # ── Post-analysis: Burst detection & Scene segmentation ───────────────
         all_photos = db.query(Photo).all()
@@ -213,14 +222,14 @@ def analyze_worker(job_id: str, photo_ids: list[int] = None, force_reanalyze: bo
                 jobs[job_id].status = "done"
                 jobs[job_id].progress = total
                 jobs[job_id].message = "Analysis complete."
-                
-        db.close()
     except Exception as e:
         print(f"Analysis worker error: {e}")
         with jobs_lock:
             if job_id in jobs:
                 jobs[job_id].status = "error"
                 jobs[job_id].message = str(e)
+    finally:
+        db.close()
 
 
 @router.post("/analyze")

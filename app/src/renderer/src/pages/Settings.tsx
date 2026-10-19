@@ -31,6 +31,7 @@ import {
   subscribeShortcuts
 } from '../utils/shortcutsManager'
 import { isAudioFeedbackEnabled, setAudioFeedbackEnabled } from '../utils/audioFeedback'
+import { nativeBridge } from '../utils/nativeBridge'
 
 function SliderRow({
   label, description, value, min, max, step = 1, unit = '',
@@ -176,14 +177,14 @@ export default function Settings() {
   const handleBackdropChange = (mode: CanvasBackdropMode) => {
     setBackdrop(mode)
     setStoredCanvasBackdrop(mode)
-    window.electronAPI?.updateMenuState?.({ canvasBackdrop: mode })
+    nativeBridge.updateMenuState({ canvasBackdrop: mode })
     toast.success(`Canvas backdrop set to ${mode}`, { icon: '🎨' })
   }
 
   const handleWorkspaceChange = (id: string) => {
     setActiveWorkspaceIdState(id)
     setActiveWorkspaceId(id)
-    window.electronAPI?.updateMenuState?.({ activeWorkspace: id })
+    nativeBridge.updateMenuState({ activeWorkspace: id })
     toast.success('Default workspace updated', { icon: '📐' })
   }
 
@@ -208,7 +209,7 @@ export default function Settings() {
   useEffect(() => {
     api.getSettings().then(setSettings).catch(() => toast.error('Failed to load settings'))
     api.getStats().then(setStats).catch(() => {})
-    window.electronAPI?.getLogPath?.().then(setLogPath).catch(() => {})
+    nativeBridge.getLogPath().then(setLogPath).catch(() => {})
   }, [])
 
   const updateField = (field: keyof Settings, value: any) => {
@@ -312,7 +313,7 @@ export default function Settings() {
 
   const handleRevealLogs = async () => {
     try {
-      await window.electronAPI?.showItemInFolder?.(logPath)
+      await nativeBridge.showItemInFolder(logPath)
     } catch {
       toast.error('Could not open log location')
     }
@@ -972,9 +973,22 @@ export default function Settings() {
               </button>
             </div>
           </div>
-          <p className="text-xs text-neutral-500 border-t border-neutral-800 pt-3">
-            FirstPass runs 100% locally on your machine. Your photos and metadata are never uploaded to the cloud.
-          </p>
+          <div className="border-t border-neutral-800 pt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-neutral-500">
+            <span>FirstPass runs 100% locally on your machine. Your photos and metadata are never uploaded to the cloud.</span>
+            <div className="flex items-center gap-3">
+              <span className="px-1.5 py-0.5 rounded bg-neutral-800 text-[10px] text-neutral-400 font-mono">GNU AGPLv3</span>
+              <a
+                href="https://github.com/techguyowen/firstpass"
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1.5 text-blue-400 hover:text-blue-300 font-medium transition-colors"
+                title="View GitHub Repository"
+              >
+                <Github size={13} />
+                <span>GitHub Repository</span>
+              </a>
+            </div>
+          </div>
         </Section>
 
         <div className="h-8" />

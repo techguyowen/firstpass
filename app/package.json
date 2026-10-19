@@ -3,7 +3,7 @@
   "productName": "FirstPass",
   "version": "1.0.1",
   "description": "Your shoot's first pass, done in minutes.",
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "author": "FirstPass <support@firstpass.app>",
   "repository": {
     "type": "git",
@@ -20,7 +20,10 @@
     "package": "npm run build && electron-builder",
     "package:mac": "npm run build && electron-builder --mac",
     "package:win": "npm run build && electron-builder --win",
-    "package:linux": "npm run build && electron-builder --linux"
+    "package:linux": "npm run build && electron-builder --linux",
+    "tauri": "tauri",
+    "tauri:dev": "npm run build && tauri dev",
+    "tauri:build": "npm run build && tauri build"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
@@ -44,6 +47,10 @@
   "dependencies": {
     "@electron-toolkit/utils": "^4.0.0",
     "@tanstack/react-virtual": "^3.0.0",
+    "@tauri-apps/api": "^2.12.3",
+    "@tauri-apps/plugin-dialog": "^2.8.2",
+    "@tauri-apps/plugin-opener": "^2.7.1",
+    "@tauri-apps/plugin-shell": "^2.5.0",
     "axios": "^1.6.0",
     "clsx": "^2.1.0",
     "lucide-react": "^0.400.0",
