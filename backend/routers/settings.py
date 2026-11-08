@@ -111,7 +111,7 @@ def get_system_info(db: Session = Depends(get_db)):
     try:
         from backend.routers.updater import CURRENT_VERSION as app_version
     except Exception:
-        app_version = "1.0.1"
+        app_version = "1.0.3"
 
     try:
         from backend.analyzer.gpu import get_gpu_info

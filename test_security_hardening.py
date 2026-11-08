@@ -35,7 +35,7 @@ def _expect_http400(fn, *args, label=""):
 
 
 def test_current_version():
-    assert updater.CURRENT_VERSION == "1.0.1", f"CURRENT_VERSION={updater.CURRENT_VERSION!r}"
+    assert updater.CURRENT_VERSION == "1.0.3", f"CURRENT_VERSION={updater.CURRENT_VERSION!r}"
 
 
 def test_download_validation():
@@ -72,7 +72,7 @@ def test_download_validation():
     assert target_zip.name == "archive.zip"
 
 
-def test_install_validation(tmp_dir: Path):
+def test_install_validation(tmp_path: Path):
     updater.UPDATES_DIR.mkdir(parents=True, exist_ok=True)
     legit = updater.UPDATES_DIR / "FirstPass-1.0.0-arm64.dmg"
     legit.write_bytes(b"fake-installer")
@@ -83,7 +83,7 @@ def test_install_validation(tmp_dir: Path):
         legit.unlink(missing_ok=True)
 
     # escape from updates dir
-    outside = tmp_dir / "evil.dmg"
+    outside = tmp_path / "evil.dmg"
     outside.write_bytes(b"x")
     _expect_http400(updater._validate_install_path, str(outside), label="escape")
     # missing file

@@ -128,6 +128,23 @@ def _load_full_image_bytes(photo) -> Optional[tuple]:
             except Exception:
                 pass
 
+        # Fast-path: high-res embedded JPEG preview (>=1080px, no demosaic)
+        try:
+            from backend.analyzer.raw_fastpath import (
+                extract_embedded_jpeg_bytes,
+                normalize_jpeg_orientation_bytes,
+            )
+            raw_jpeg = extract_embedded_jpeg_bytes(str(path), min_long_edge=1080)
+            if raw_jpeg:
+                data = normalize_jpeg_orientation_bytes(raw_jpeg)
+                try:
+                    preview_path.write_bytes(data)
+                except Exception:
+                    pass
+                return data, "image/jpeg"
+        except Exception:
+            pass
+
         # Convert RAW to JPEG or extract high-res embedded preview
         try:
             import rawpy

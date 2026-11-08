@@ -58,6 +58,44 @@ def format_focal_length(focal):
         pass
     return f"{focal}mm"
 
+def _fill_meta_from_exif(meta: dict, exif) -> bool:
+    """Map a raw EXIF dict into meta; returns True when any field was set."""
+    if not exif:
+        return False
+    # Map numeric tags to string names
+    named_exif = {}
+    for k, v in exif.items():
+        tag = ExifTags.TAGS.get(k, k)
+        named_exif[tag] = v
+
+    # Date
+    meta["exif_date"] = named_exif.get("DateTimeOriginal") or named_exif.get("DateTime")
+    if meta["exif_date"]:
+        meta["exif_date"] = str(meta["exif_date"])
+
+    # Camera & Lens
+    meta["camera_make"] = str(named_exif.get("Make")).strip() if named_exif.get("Make") else None
+    meta["camera_model"] = str(named_exif.get("Model")).strip() if named_exif.get("Model") else None
+    meta["lens_model"] = str(named_exif.get("LensModel")).strip() if named_exif.get("LensModel") else None
+
+    # Exposure parameters
+    meta["shutter_speed"] = format_shutter(named_exif.get("ExposureTime"))
+    meta["aperture"] = format_aperture(named_exif.get("FNumber"))
+
+    # ISO
+    iso = named_exif.get("ISOSpeedRatings") or named_exif.get("PhotographicSensitivity")
+    if iso is not None:
+        try:
+            meta["iso"] = int(iso if isinstance(iso, (int, float)) else iso[0])
+        except Exception:
+            pass
+
+    # Focal Length
+    meta["focal_length"] = format_focal_length(named_exif.get("FocalLength"))
+
+    return any(v is not None for v in meta.values())
+
+
 def extract_exif_metadata(image_path: str) -> dict:
     meta = {
         "exif_date": None,
@@ -69,52 +107,44 @@ def extract_exif_metadata(image_path: str) -> dict:
         "iso": None,
         "focal_length": None
     }
-    
+
     try:
-        img = Image.open(image_path)
-        exif = img._getexif()
-        if exif:
-            # Map numeric tags to string names
-            named_exif = {}
-            for k, v in exif.items():
-                tag = ExifTags.TAGS.get(k, k)
-                named_exif[tag] = v
-                
-            # Date
-            meta["exif_date"] = named_exif.get("DateTimeOriginal") or named_exif.get("DateTime")
-            if meta["exif_date"]:
-                meta["exif_date"] = str(meta["exif_date"])
-                
-            # Camera & Lens
-            meta["camera_make"] = str(named_exif.get("Make")).strip() if named_exif.get("Make") else None
-            meta["camera_model"] = str(named_exif.get("Model")).strip() if named_exif.get("Model") else None
-            meta["lens_model"] = str(named_exif.get("LensModel")).strip() if named_exif.get("LensModel") else None
-            
-            # Exposure parameters
-            meta["shutter_speed"] = format_shutter(named_exif.get("ExposureTime"))
-            meta["aperture"] = format_aperture(named_exif.get("FNumber"))
-            
-            # ISO
-            iso = named_exif.get("ISOSpeedRatings") or named_exif.get("PhotographicSensitivity")
-            if iso is not None:
-                try:
-                    meta["iso"] = int(iso if isinstance(iso, (int, float)) else iso[0])
-                except Exception:
-                    pass
-                    
-            # Focal Length
-            meta["focal_length"] = format_focal_length(named_exif.get("FocalLength"))
+        with Image.open(image_path) as img:
+            _fill_meta_from_exif(meta, img._getexif())
     except Exception:
         pass
-        
+
+    # RAW fallback: Pillow often cannot open the container itself, but the
+    # embedded JPEG preview carries the same EXIF block.
+    if all(v is None for v in meta.values()):
+        try:
+            from .raw_fastpath import is_raw_path, extract_embedded_jpeg_bytes
+            if is_raw_path(image_path):
+                jpeg_bytes = extract_embedded_jpeg_bytes(image_path)
+                if jpeg_bytes:
+                    with Image.open(io.BytesIO(jpeg_bytes)) as thumb_img:
+                        _fill_meta_from_exif(meta, thumb_img._getexif())
+        except Exception:
+            pass
+
     return meta
 
 def load_image(path: str) -> tuple[np.ndarray, dict]:
+    meta = extract_exif_metadata(path)
+
+    # Embedded-JPEG fast-path (>=1080px preview) with rawpy fallback.
+    try:
+        from .raw_fastpath import load_bgr_fast
+        image_bgr, _used_preview = load_bgr_fast(path, min_long_edge=1080, prefer_embedded_preview=True)
+        if image_bgr is not None:
+            return image_bgr, meta
+    except Exception:
+        image_bgr = None
+
+    # Legacy fallback (preserved for robustness)
     ext = path.lower().split('.')[-1]
     raw_exts = ['cr2', 'cr3', 'nef', 'arw', 'orf', 'raf', 'dng', 'rw2']
-    
-    meta = extract_exif_metadata(path)
-    
+
     if ext in raw_exts and rawpy is not None:
         with rawpy.imread(path) as raw:
             rgb = raw.postprocess(half_size=True, use_camera_wb=True) # half_size for speed
@@ -130,7 +160,7 @@ def load_image(path: str) -> tuple[np.ndarray, dict]:
                 image_bgr = cv2.cvtColor(rgb_arr, cv2.COLOR_RGB2BGR)
         except Exception:
             image_bgr = cv2.imread(path)
-        
+
     return image_bgr, meta
 
 def generate_thumbnail(image: np.ndarray, photo_id: int, size: int, thumbnails_dir: str) -> str:
@@ -160,22 +190,40 @@ def fast_generate_thumbnail_from_path(photo_path: str, photo_id: int, size: int,
     thumb_path = os.path.join(thumbnails_dir, f"{photo_id}.jpg")
     ext = os.path.splitext(photo_path)[1].lower()
 
-    # 1. High-speed RAW extraction
-    if ext in RAW_EXTS and rawpy is not None:
+    # 1. High-speed RAW extraction (rawpy thumb, else binary container scan)
+    if ext in RAW_EXTS:
         try:
-            with rawpy.imread(photo_path) as raw:
-                try:
-                    thumb = raw.extract_thumb()
-                    if thumb.format == rawpy.ThumbFormat.JPEG:
-                        with Image.open(io.BytesIO(thumb.data)) as t_img:
-                            t_img = ImageOps.exif_transpose(t_img)
-                            t_img.thumbnail((size, size), Image.Resampling.BILINEAR)
-                            if t_img.mode != "RGB":
-                                t_img = t_img.convert("RGB")
-                            t_img.save(thumb_path, "JPEG", quality=85, optimize=False)
-                            return thumb_path
-                except Exception:
-                    pass
+            from .raw_fastpath import extract_embedded_jpeg_bytes, normalize_jpeg_orientation_bytes
+            jpeg_bytes = extract_embedded_jpeg_bytes(photo_path, min_long_edge=0)
+            if jpeg_bytes:
+                with Image.open(io.BytesIO(jpeg_bytes)) as t_img:
+                    t_img = ImageOps.exif_transpose(t_img)
+                    w, h = t_img.size
+                    # Opportunistically warm the full-screen preview cache so
+                    # the first review of this RAW is an instant SSD hit.
+                    if max(w, h) >= 1080:
+                        try:
+                            from ..database import DATA_DIR
+                            previews_dir = os.environ.get(
+                                "FIRSTPASS_PREVIEWS_DIR",
+                                os.environ.get(
+                                    "PHOTO_CULLER_PREVIEWS_DIR",
+                                    os.path.join(DATA_DIR, "previews"),
+                                ),
+                            )
+                            os.makedirs(previews_dir, exist_ok=True)
+                            preview_path = os.path.join(previews_dir, f"{photo_id}.jpg")
+                            if not os.path.exists(preview_path):
+                                normalized = normalize_jpeg_orientation_bytes(jpeg_bytes)
+                                with open(preview_path, "wb") as pf:
+                                    pf.write(normalized)
+                        except Exception:
+                            pass
+                    t_img.thumbnail((size, size), Image.Resampling.BILINEAR)
+                    if t_img.mode != "RGB":
+                        t_img = t_img.convert("RGB")
+                    t_img.save(thumb_path, "JPEG", quality=85, optimize=False)
+                    return thumb_path
         except Exception:
             pass
 

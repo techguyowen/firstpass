@@ -321,6 +321,23 @@ export default function App() {
     };
   }, [navigate, location.pathname, activePhotoId, lastReviewedPhotoId, photos, undo, redo, toggleAutoAdvance, startScan]);
 
+  // Tauri v2 native file-drop folder import (Tauri webviews don't expose
+  // dropped file paths via DOM `drop` events, so listen for the backend event)
+  useEffect(() => {
+    if (!nativeBridge.onFileDrop) return;
+    const cleanup = nativeBridge.onFileDrop(async (paths: string[]) => {
+      if (!paths[0]) return;
+      try {
+        toast('Scanning dropped folder...', { icon: '📁', id: 'scan-drop' });
+        await startScan(paths[0], false);
+        navigate('/');
+      } catch (err: unknown) {
+        toast.error(err instanceof Error ? err.message : 'Failed to scan dropped folder', { id: 'scan-drop' });
+      }
+    });
+    return () => cleanup?.();
+  }, [startScan, navigate]);
+
   // Full-window drag-and-drop folder import
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const dragCounterRef = useRef(0);

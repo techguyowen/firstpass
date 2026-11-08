@@ -53,11 +53,15 @@ fn app_submenu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
     let shortcuts = MenuItemBuilder::new("Keyboard Shortcuts...")
         .id("shortcuts")
         .build(app)?;
+    let check_updates = MenuItemBuilder::new("Check for Updates...")
+        .id("check-updates")
+        .build(app)?;
     SubmenuBuilder::new(app, "FirstPass")
         .about_with_text("About FirstPass", Some(metadata))
         .separator()
         .item(&settings)
         .item(&shortcuts)
+        .item(&check_updates)
         .separator()
         .quit_with_text("Quit FirstPass")
         .build()
@@ -65,11 +69,11 @@ fn app_submenu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
 
 fn file_submenu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
     let open = MenuItemBuilder::new("Open Folder...")
-        .id("open-folder")
+        .id("import-folder")
         .accelerator("CmdOrCtrl+O")
         .build(app)?;
     let export = MenuItemBuilder::new("Export...")
-        .id("export")
+        .id("open-export")
         .accelerator("CmdOrCtrl+E")
         .build(app)?;
     let builder = SubmenuBuilder::new(app, "File")
@@ -87,9 +91,13 @@ fn file_submenu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
         let shortcuts = MenuItemBuilder::new("Keyboard Shortcuts...")
             .id("shortcuts")
             .build(app)?;
+        let check_updates = MenuItemBuilder::new("Check for Updates...")
+            .id("check-updates")
+            .build(app)?;
         builder
             .item(&settings)
             .item(&shortcuts)
+            .item(&check_updates)
             .separator()
             .quit_with_text("Exit")
             .build()
@@ -124,11 +132,11 @@ fn view_submenu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
         .id("toggle-filmstrip")
         .build(app)?;
     let lock_zoom = CheckMenuItemBuilder::new("Lock Zoom Between Photos")
-        .id("lock-zoom")
+        .id("toggle-lock-zoom")
         .checked(false)
         .build(app)?;
     let lock_turn = CheckMenuItemBuilder::new("Lock Turn")
-        .id("lock-turn")
+        .id("toggle-lock-turn")
         .checked(false)
         .build(app)?;
     SubmenuBuilder::new(app, "View")
@@ -145,19 +153,19 @@ fn view_submenu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
 
 fn photo_submenu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
     let accept = MenuItemBuilder::new("Accept")
-        .id("accept")
+        .id("rate-accept")
         .accelerator("A")
         .build(app)?;
     let reject = MenuItemBuilder::new("Reject")
-        .id("reject")
+        .id("rate-reject")
         .accelerator("R")
         .build(app)?;
     let reset = MenuItemBuilder::new("Reset / Unflag")
-        .id("reset-flag")
+        .id("rate-pending")
         .accelerator("U")
         .build(app)?;
     let tag = MenuItemBuilder::new("Tag / Flag")
-        .id("tag-flag")
+        .id("toggle-tag")
         .accelerator("\\")
         .build(app)?;
     SubmenuBuilder::new(app, "Photo")

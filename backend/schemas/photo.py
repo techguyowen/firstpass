@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional, List
 from datetime import datetime
 
@@ -63,8 +63,7 @@ class PhotoResponse(PhotoBase):
     created_at: datetime
     analyzed_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class SettingsBase(BaseModel):
     blur_threshold: float = 30.0
@@ -102,8 +101,7 @@ class SettingsBase(BaseModel):
     weight_composition: float = 0.15
 
 class SettingsResponse(SettingsBase):
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class SettingsUpdate(SettingsBase):
     pass

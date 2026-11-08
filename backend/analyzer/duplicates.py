@@ -4,11 +4,22 @@ import uuid
 from datetime import datetime
 from typing import List, Dict, Tuple, Optional, Any
 
+from .raw_fastpath import is_raw_path, open_pil_fast
+
 def compute_hash(image_path: str) -> str:
     try:
-        with Image.open(image_path) as img:
+        # RAW files hash from the embedded JPEG preview (ms, not seconds).
+        img = open_pil_fast(image_path, min_long_edge=128)
+        if img is None:
+            return ""
+        try:
             phash = imagehash.phash(img)
             return str(phash)
+        finally:
+            try:
+                img.close()
+            except Exception:
+                pass
     except Exception as e:
         print(f"Error computing hash for {image_path}: {e}")
         return ""
@@ -200,7 +211,15 @@ def classify_duplicate_group(
     loaded: List[Tuple[Any, Any]] = []
     for photo_obj, path in photos_paths:
         try:
-            img = cv2.imread(path)
+            img = None
+            # RAW files (unreadable by cv2) go straight to the embedded preview.
+            if not is_raw_path(path):
+                img = cv2.imread(path)
+            if img is None:
+                import numpy as np
+                pil_img = open_pil_fast(path, min_long_edge=128)
+                if pil_img is not None:
+                    img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
             if img is None:
                 from PIL import ImageOps
                 import numpy as np

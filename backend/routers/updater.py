@@ -21,7 +21,7 @@ from backend.models.photo import Settings as SettingsModel
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-CURRENT_VERSION = "1.0.1"
+CURRENT_VERSION = "1.0.3"
 
 ALLOWED_DOWNLOAD_HOSTS = ("github.com", "objects.githubusercontent.com")
 ALLOWED_INSTALL_EXTENSIONS = (".dmg", ".exe", ".AppImage", ".deb")

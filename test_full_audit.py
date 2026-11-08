@@ -15,9 +15,33 @@ import sys
 import time
 import requests
 import json
+import socket
 from pathlib import Path
 
 BASE_URL = "http://localhost:58765/api"
+
+
+def _backend_running(host="localhost", port=58765, timeout=1.0):
+    """True when the live backend server accepts connections on localhost:58765."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+try:
+    import pytest
+
+    # All tests in this module are live-server integration tests: skip cleanly
+    # during offline unit test runs instead of failing with ConnectionRefusedError.
+    pytestmark = pytest.mark.skipif(
+        not _backend_running(),
+        reason="Backend server not running on localhost:58765",
+    )
+except ImportError:
+    # pytest isn't installed: `python test_full_audit.py` still works as a script.
+    pass
 
 _token_file = Path.home() / ".firstpass" / ".session_token"
 if not _token_file.exists():

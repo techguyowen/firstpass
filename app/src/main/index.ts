@@ -13,8 +13,8 @@ if (process.platform === 'darwin') {
 }
 app.setAboutPanelOptions({
   applicationName: 'FirstPass',
-  applicationVersion: '1.0.1',
-  version: '1.0.1',
+  applicationVersion: '1.0.3',
+  version: '1.0.3',
   copyright: 'Copyright © 2026 FirstPass',
   credits: 'FirstPass — AI Auto Photo Culling Studio',
   website: 'https://firstpass.app'

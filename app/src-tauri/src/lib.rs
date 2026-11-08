@@ -70,7 +70,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_api_secret,
-            commands::show_itemIn_folder,
+            commands::show_item_in_folder,
             commands::get_log_path,
             commands::update_menu_state
         ])

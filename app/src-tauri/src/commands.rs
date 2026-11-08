@@ -11,9 +11,8 @@ pub fn get_api_secret(state: State<'_, AppState>) -> String {
 }
 
 /// Reveal `path` in the native file manager (Finder / Explorer / Files).
-#[allow(non_snake_case)]
 #[tauri::command]
-pub fn show_itemIn_folder(path: String) -> bool {
+pub fn show_item_in_folder(path: String) -> bool {
     if cfg!(target_os = "macos") {
         std::process::Command::new("open")
             .arg("-R")

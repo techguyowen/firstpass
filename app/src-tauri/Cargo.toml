@@ -1,6 +1,6 @@
 [package]
 name = "firstpass"
-version = "1.0.1"
+version = "1.0.3"
 edition = "2021"
 description = "FirstPass desktop shell (Tauri v2)"
 license = "AGPL-3.0-only"

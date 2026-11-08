@@ -4,7 +4,6 @@ import uuid
 import logging
 import os
 import concurrent.futures
-from PIL import Image, ImageOps
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +12,7 @@ from ..models.photo import Photo, Settings
 from ..schemas.photo import ScanRequest, JobStatus
 from ..jobs import jobs, jobs_lock
 from ..analyzer.duplicates import compute_hash, find_duplicate_groups
+from ..analyzer.raw_fastpath import probe_image_dimensions
 
 router = APIRouter()
 
@@ -49,12 +49,13 @@ def scan_worker(job_id: str, folder_path: str):
                 if not existing:
                     stat = os.stat(filepath)
 
-                    # Try to get basic dimensions (with EXIF transpose)
+                    # Fast header-only dimension probe (EXIF-aware, no pixel decode)
                     width, height = 0, 0
                     try:
-                        with Image.open(filepath) as img:
-                            t_img = ImageOps.exif_transpose(img)
-                            width, height = t_img.size
+                        width, height = probe_image_dimensions(filepath)
+                        if width == 0 and height == 0:
+                            logger.warning(f"Failed to probe dimensions for {filepath}: unreadable or unknown format")
+                            scan_errors += 1
                     except Exception as e:
                         logger.warning(f"Failed to probe dimensions for {filepath}: {e}")
                         scan_errors += 1

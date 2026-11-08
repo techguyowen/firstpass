@@ -20,6 +20,7 @@ export interface NativeBridge {
   onOpenShortcuts: (callback: () => void) => () => void
   onNavigateTo: (callback: (route: string) => void) => () => void
   onMenuAction: (callback: (action: string, payload?: any) => void) => () => void
+  onFileDrop?: (callback: (paths: string[]) => void) => () => void
 }
 
 // Detect if running inside Tauri v2 webview
@@ -75,10 +76,10 @@ export const nativeBridge: NativeBridge = {
         const { getVersion } = await import('@tauri-apps/api/app')
         return await getVersion()
       } catch {
-        return '1.0.1'
+        return '1.0.3'
       }
     }
-    return window.electronAPI?.getAppVersion() ?? '1.0.1'
+    return window.electronAPI?.getAppVersion() ?? '1.0.3'
   },
 
   getApiSecret: async () => {
@@ -192,8 +193,12 @@ export const nativeBridge: NativeBridge = {
       let unlisten: (() => void) | undefined
       let cancelled = false
       import('@tauri-apps/api/event').then(({ listen }) => {
-        listen<{ action: string; payload?: any }>('menu-action', (e) => {
-          callback(e.payload.action, e.payload.payload)
+        listen<string | { action: string; payload?: any }>('menu-action', (e) => {
+          if (typeof e.payload === 'string') {
+            callback(e.payload)
+          } else {
+            callback(e.payload.action, e.payload.payload)
+          }
         }).then((u) => {
           if (cancelled) {
             u()
@@ -205,5 +210,27 @@ export const nativeBridge: NativeBridge = {
       return () => { cancelled = true; unlisten?.() }
     }
     return window.electronAPI?.onMenuAction?.(callback) ?? (() => {})
+  },
+
+  onFileDrop: (callback: (paths: string[]) => void) => {
+    if (isTauri) {
+      let unlisten: (() => void) | undefined
+      let cancelled = false
+      import('@tauri-apps/api/event').then(({ listen }) => {
+        listen<{ paths: string[] }>('tauri://drag-drop', (e) => {
+          callback(e.payload.paths)
+        }).then((u) => {
+          if (cancelled) {
+            u()
+          } else {
+            unlisten = u
+          }
+        })
+      }).catch(() => {})
+      return () => { cancelled = true; unlisten?.() }
+    }
+    // Electron exposes dropped file paths via DOM `drop` events (File.path),
+    // so there is nothing to subscribe to here.
+    return () => {}
   }
 }

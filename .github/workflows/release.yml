@@ -149,11 +149,12 @@ jobs:
       - name: Install Electron Frontend Dependencies
         run: |
           cd app
-          npm install
+          npm ci
 
       - name: Build Electron App
         run: |
           cd app
+          npm run typecheck
           npm run build
 
       - name: Package with Electron Builder
