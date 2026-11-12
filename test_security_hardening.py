@@ -35,7 +35,7 @@ def _expect_http400(fn, *args, label=""):
 
 
 def test_current_version():
-    assert updater.CURRENT_VERSION == "1.0.3", f"CURRENT_VERSION={updater.CURRENT_VERSION!r}"
+    assert updater.CURRENT_VERSION == "1.0.4", f"CURRENT_VERSION={updater.CURRENT_VERSION!r}"
 
 
 def test_download_validation():

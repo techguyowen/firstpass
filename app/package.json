@@ -1,7 +1,7 @@
 {
   "name": "firstpass",
   "productName": "FirstPass",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Your shoot's first pass, done in minutes.",
   "license": "AGPL-3.0-only",
   "author": "FirstPass <support@firstpass.app>",
