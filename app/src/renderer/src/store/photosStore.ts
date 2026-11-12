@@ -117,6 +117,9 @@ interface PhotosStore {
   removeFolder: (folderPath: string) => Promise<void>
   resetLibrary: () => Promise<void>
   fetchPhotos: () => Promise<void>  // alias
+  activeVipFilter: { id: number; label: string; thumbnail_b64?: string | null; matchedIds: number[] } | null
+  filterByVipFace: (vip: { id: number; label: string; thumbnail_b64?: string | null }) => Promise<void>
+  clearVipFilter: () => void
 }
 
 export const usePhotosStore = create<PhotosStore>((set, get) => ({
@@ -131,6 +134,7 @@ export const usePhotosStore = create<PhotosStore>((set, get) => ({
     sort_by: 'overall_score_desc',
   },
   folders: [],
+  activeVipFilter: null,
   isScanning: false,
   isAnalyzing: false,
   scanJobId: null,
@@ -400,6 +404,26 @@ export const usePhotosStore = create<PhotosStore>((set, get) => ({
   },
 
   fetchPhotos: async () => get().loadPhotos(),
+
+  filterByVipFace: async (vip) => {
+    try {
+      const res = await api.matchVipFace(vip.id)
+      const matchedIds = res.matched_photo_ids || []
+      set({
+        activeVipFilter: {
+          id: vip.id,
+          label: vip.label || 'Person',
+          thumbnail_b64: vip.thumbnail_b64,
+          matchedIds,
+        },
+      })
+      toast.success(`Found ${matchedIds.length} photo(s) matching ${vip.label || 'this person'}`)
+    } catch {
+      toast.error('Failed to match face across shoot')
+    }
+  },
+
+  clearVipFilter: () => set({ activeVipFilter: null }),
 
   startScan: async (folderPath, clearPrevious = false) => {
     if (clearPrevious) {

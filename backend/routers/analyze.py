@@ -112,7 +112,8 @@ def analyze_worker(job_id: str, photo_ids: list[int] = None, force_reanalyze: bo
                             photo.aesthetic_score = res["aesthetic"].get("aesthetic_score")
                             photo.composition_score = res["composition"].get("composition_score")
                             photo.overall_score = res["overall_score"]
-                            photo.status = res["status"]
+                            if not bool(getattr(photo, "user_overridden", False)):
+                                photo.status = res["status"]
 
                             # Advanced Genre & Artistic Attributes
                             photo.shoot_genre = res.get("shoot_genre", "general")
@@ -352,7 +353,8 @@ def reanalyze_single_photo(photo_id: int, db: Session = Depends(get_db)):
     photo.lighting_type = res.get("lighting_type", "standard")
     photo.is_vip_focused = res.get("is_vip_focused", False)
     photo.reasons_json = res.get("reasons_json")
-    photo.status = res['status']
+    if not bool(getattr(photo, "user_overridden", False)):
+        photo.status = res['status']
 
     # Delete old thumbnail to force regeneration
     thumb_path = os.path.join(thumbnails_dir, f"{photo_id}.jpg")

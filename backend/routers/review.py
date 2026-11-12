@@ -382,6 +382,7 @@ def update_photo_status(photo_id: int, body: dict, db: Session = Depends(get_db)
 
     old_status = photo.status
     photo.status = new_status
+    photo.user_overridden = new_status != "pending"
 
     # Preference learning adaptation:
     # When user overrides AI suggestions, gently adjust biases
@@ -778,6 +779,31 @@ def _set_export_progress(job_id: str, done: int, total: int) -> None:
             jobs[job_id].message = f"Exporting {done} of {total}..."
 
 
+def _companion_xmp_paths(src: Path) -> List[Path]:
+    """Return existing .xmp sidecar files next to `src` (stem.xmp and name.xmp)."""
+    seen = set()
+    out: List[Path] = []
+    for candidate in (src.parent / f"{src.stem}.xmp", src.parent / f"{src.name}.xmp"):
+        if candidate not in seen and candidate.exists() and candidate.is_file():
+            seen.add(candidate)
+            out.append(candidate)
+    return out
+
+
+def _sync_companion_xmps(src: Path, dst: Path, move: bool) -> None:
+    """Copy or move any companion .xmp sidecars alongside `src` -> `dst`."""
+    for xmp in _companion_xmp_paths(src):
+        target_name = f"{dst.name}.xmp" if xmp.name == f"{src.name}.xmp" else f"{dst.stem}.xmp"
+        xmp_dst = dst.parent / target_name
+        try:
+            if move:
+                shutil.move(str(xmp), str(xmp_dst))
+            else:
+                shutil.copy2(str(xmp), str(xmp_dst))
+        except Exception as e:
+            logger.warning(f"Failed to {'move' if move else 'copy'} companion sidecar {xmp}: {e}")
+
+
 def export_worker(job_id: str, photo_ids: list, action: str, destination_folder: Optional[str]) -> None:
     """Background export worker — updates jobs[job_id] progress per photo."""
     db = SessionLocal()
@@ -845,6 +871,8 @@ def export_worker(job_id: str, photo_ids: list, action: str, destination_folder:
                 try:
                     ok, err = _trash_path_safely(p.path)
                     if ok:
+                        for xmp in _companion_xmp_paths(Path(p.path)):
+                            _trash_path_safely(str(xmp))
                         db.delete(p)
                         count += 1
                     else:
@@ -875,6 +903,7 @@ def export_worker(job_id: str, photo_ids: list, action: str, destination_folder:
                             shutil.move(str(src), str(dst))
                             if not dst.exists():
                                 raise IOError(f"Moved file missing at destination {dst}")
+                            _sync_companion_xmps(src, dst, move=True)
                             p.path = str(dst)
                             p.folder = str(dst.parent)
                             db.commit()
@@ -890,6 +919,7 @@ def export_worker(job_id: str, photo_ids: list, action: str, destination_folder:
                             errors.append(f"{p.filename}: {e}")
                     else:
                         shutil.copy2(str(src), str(dst))
+                        _sync_companion_xmps(src, dst, move=False)
                         count += 1
                 except Exception as e:
                     errors.append(str(e))
@@ -1307,6 +1337,37 @@ def remove_vip_face_by_photo(photo_id: int, face_index: int, db: Session = Depen
 
     db.commit()
     return {"success": True, "photo_id": photo_id, "face_index": face_index}
+
+
+@router.post("/vip-faces/{vip_id}/match")
+def match_vip_face(vip_id: int, body: Optional[dict] = None, db: Session = Depends(get_db)):
+    """Find all photos in the library containing the selected VIP face."""
+    from ..models.photo import VipFace
+    from ..analyzer.face_match import match_vip_face_across_photos
+
+    vip = db.query(VipFace).filter(VipFace.id == vip_id).first()
+    if not vip:
+        raise HTTPException(status_code=404, detail="VIP face not found")
+    if not vip.thumbnail_b64:
+        raise HTTPException(status_code=400, detail="VIP face has no crop thumbnail")
+
+    threshold = 0.72
+    if body and isinstance(body.get("threshold"), (int, float)):
+        threshold = max(0.3, min(0.99, float(body["threshold"])))
+
+    candidates = db.query(PhotoModel).filter(PhotoModel.face_count > 0).all()
+    matches = match_vip_face_across_photos(
+        vip.thumbnail_b64,
+        candidates,
+        source_photo_id=vip.photo_id,
+        threshold=threshold,
+    )
+    return {
+        "vip_id": vip.id,
+        "label": vip.label,
+        "matched_photo_ids": [m["photo_id"] for m in matches],
+        "matches": matches,
+    }
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────────

@@ -98,6 +98,7 @@ def auto_migrate(db_engine):
                     ("lighting_type", "VARCHAR DEFAULT 'standard'"),
                     ("is_vip_focused", "BOOLEAN DEFAULT 0"),
                     ("is_tagged", "BOOLEAN DEFAULT 0"),
+                    ("user_overridden", "BOOLEAN DEFAULT 0"),
                     ("reasons_json", "TEXT"),
                     ("camera_clock_offset", "FLOAT DEFAULT 0.0"),
                 ]

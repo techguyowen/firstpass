@@ -59,6 +59,7 @@ class Photo(Base):
     camera_clock_offset = Column(Float, default=0.0)
     
     status = Column(String, default="pending", index=True) # pending, accepted, rejected
+    user_overridden = Column(Boolean, default=False)
     is_tagged = Column(Boolean, default=False, index=True)
     is_analyzed = Column(Boolean, default=False, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)

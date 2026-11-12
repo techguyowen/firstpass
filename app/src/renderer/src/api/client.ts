@@ -297,6 +297,11 @@ export const api = {
     await axiosInstance.delete(`/api/vip-faces/by-photo/${photo_id}/${face_index}`)
   },
 
+  async matchVipFace(vip_id: number, threshold?: number): Promise<{ vip_id: number; label: string; matched_photo_ids: number[]; matches: { photo_id: number; face_index: number; similarity: number }[] }> {
+    const { data } = await axiosInstance.post(`/api/vip-faces/${vip_id}/match`, threshold !== undefined ? { threshold } : {})
+    return data
+  },
+
   async toggleTag(photoId: number, is_tagged?: boolean): Promise<Photo> {
     const { data } = await axiosInstance.put(`/api/photos/${photoId}/tag`, is_tagged !== undefined ? { is_tagged } : {})
     return data

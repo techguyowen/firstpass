@@ -108,10 +108,16 @@ export default function Gallery() {
     })
   }, [])
 
-  // Filter photos for display (burst stacking)
+  // Filter photos for display (single-person VIP filter + burst stacking)
+  const activeVipFilter = usePhotosStore((s) => s.activeVipFilter)
+  const clearVipFilter = usePhotosStore((s) => s.clearVipFilter)
+
   const displayedPhotos = useMemo(() => {
-    if (viewOptions.collapseBursts === false) return photos
-    return photos.filter(p => {
+    const base = activeVipFilter
+      ? photos.filter((p) => activeVipFilter.matchedIds.includes(p.id))
+      : photos
+    if (viewOptions.collapseBursts === false) return base
+    return base.filter(p => {
       if (!p.burst_group_id) return true
       const count = burstCounts.get(p.burst_group_id) || 0
       if (count <= 1) return true
@@ -120,10 +126,10 @@ export default function Gallery() {
       // Otherwise only show the designated hero/leader
       if (p.is_burst_leader) return true
       // Fallback: if no leader flag, show the first photo in the burst
-      const first = photos.find(x => x.burst_group_id === p.burst_group_id)
+      const first = base.find(x => x.burst_group_id === p.burst_group_id)
       return first?.id === p.id
     })
-  }, [photos, viewOptions.collapseBursts, expandedBursts, burstCounts])
+  }, [photos, activeVipFilter, viewOptions.collapseBursts, expandedBursts, burstCounts])
 
   // Keep focusedIdx within bounds
   useEffect(() => {
@@ -965,6 +971,16 @@ export default function Gallery() {
             <span className="font-medium">{STRICTNESS_PRESETS[strictnessIdx].label}</span>
           </button>
           <span className="text-neutral-400">{displayedPhotos.length.toLocaleString()} {viewOptions.collapseBursts && burstCounts.size > 0 ? 'items' : 'photos'}</span>
+          {activeVipFilter && (
+            <button
+              onClick={clearVipFilter}
+              className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 hover:text-white text-xs font-medium cursor-pointer"
+              title="Clear single-person face filter"
+            >
+              <span>Person: {activeVipFilter.label}</span>
+              <span className="text-indigo-400">×</span>
+            </button>
+          )}
           <span className="flex items-center gap-1 text-emerald-400 font-medium">
             <CheckCircle2 size={13} />{stats.accepted}
           </span>
