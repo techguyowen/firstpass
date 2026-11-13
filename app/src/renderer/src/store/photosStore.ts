@@ -406,6 +406,8 @@ export const usePhotosStore = create<PhotosStore>((set, get) => ({
   fetchPhotos: async () => get().loadPhotos(),
 
   filterByVipFace: async (vip) => {
+    const label = vip.label || 'this person'
+    const toastId = toast.loading(`Matching ${label} across shoot...`)
     try {
       const res = await api.matchVipFace(vip.id)
       const matchedIds = res.matched_photo_ids || []
@@ -417,9 +419,9 @@ export const usePhotosStore = create<PhotosStore>((set, get) => ({
           matchedIds,
         },
       })
-      toast.success(`Found ${matchedIds.length} photo(s) matching ${vip.label || 'this person'}`)
+      toast.success(`Found ${matchedIds.length} photo(s) matching ${label}`, { id: toastId })
     } catch {
-      toast.error('Failed to match face across shoot')
+      toast.error('Failed to match face across shoot', { id: toastId })
     }
   },
 

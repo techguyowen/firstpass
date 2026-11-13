@@ -452,7 +452,10 @@ def analyze_photo_sync(photo_id: int, image_path: str, thumbnails_dir: str, sett
         )
 
         genre = getattr(s, 'active_shoot_genre', 'wedding')
-        is_vip = any(f.get("is_vip", False) for f in detected_faces) if detected_faces else False
+        is_vip = any(
+            f.get("is_vip", False) or f.get("is_primary_subject", False)
+            for f in detected_faces
+        ) if detected_faces else False
 
         result = {
             "success": True,

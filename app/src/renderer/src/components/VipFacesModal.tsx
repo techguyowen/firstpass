@@ -22,10 +22,14 @@ function VipFaceCard({
   vip,
   onRemove,
   onFilter,
+  isFiltering,
+  disabled,
 }: {
   vip: VipFace
   onRemove: (id: number) => void
   onFilter: (vip: VipFace) => void
+  isFiltering?: boolean
+  disabled?: boolean
 }) {
   const [label, setLabel] = useState(vip.label ?? '')
   const [editing, setEditing] = useState(false)
@@ -114,11 +118,21 @@ function VipFaceCard({
 
         <button
           onClick={() => onFilter({ ...vip, label: label || vip.label })}
-          className="w-full mt-1.5 py-1.5 px-2.5 rounded-lg bg-indigo-600/80 hover:bg-indigo-500 text-white text-xs font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-          title="Show only photos containing this person in Gallery"
+          disabled={disabled}
+          className="w-full mt-1.5 py-1.5 px-2.5 rounded-lg bg-indigo-600/80 hover:bg-indigo-500 disabled:opacity-60 disabled:cursor-wait text-white text-xs font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+          title="Scan all analyzed photos to show only photos containing this person in Gallery"
         >
-          <Filter size={12} />
-          <span>Filter Gallery</span>
+          {isFiltering ? (
+            <>
+              <Loader2 size={12} className="animate-spin" />
+              <span>Matching faces…</span>
+            </>
+          ) : (
+            <>
+              <Filter size={12} />
+              <span>Filter Gallery</span>
+            </>
+          )}
         </button>
       </div>
     </div>
@@ -129,6 +143,7 @@ export default function VipFacesModal({ isOpen, onClose }: VipFacesModalProps) {
   const [vips, setVips] = useState<VipFace[]>([])
   const filterByVipFace = usePhotosStore((s) => s.filterByVipFace)
   const [loading, setLoading] = useState(false)
+  const [filteringId, setFilteringId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -179,8 +194,8 @@ export default function VipFacesModal({ isOpen, onClose }: VipFacesModalProps) {
               <Star size={18} className="text-yellow-400 fill-yellow-400" />
               VIP Faces
             </div>
-            <p className="text-[12px] text-neutral-500 mt-0.5">
-              Faces pinned as primary subjects
+            <p className="text-[12px] text-neutral-400 mt-0.5">
+              Faces you pin in Face Loupe. Click <span className="text-indigo-300 font-medium">Filter Gallery</span> to scan all analyzed photos and match that person across your shoot.
             </p>
           </div>
           <button
@@ -219,18 +234,33 @@ export default function VipFacesModal({ isOpen, onClose }: VipFacesModalProps) {
           )}
 
           {!loading && !error && vips.length > 0 && (
-            <div className="grid grid-cols-3 gap-3">
-              {vips.map((vip) => (
-                <VipFaceCard
-                  key={vip.id}
-                  vip={vip}
-                  onRemove={handleRemove}
-                  onFilter={async (v) => {
-                    await filterByVipFace({ id: v.id, label: v.label || `Face #${v.face_index + 1}`, thumbnail_b64: v.thumbnail_b64 })
-                    onClose()
-                  }}
-                />
-              ))}
+            <div className="space-y-3">
+              {filteringId !== null && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-500/15 border border-indigo-500/30 text-indigo-200 text-xs">
+                  <Loader2 size={14} className="animate-spin shrink-0 text-indigo-400" />
+                  <span>Comparing this face against all analyzed photos in your library…</span>
+                </div>
+              )}
+              <div className="grid grid-cols-3 gap-3">
+                {vips.map((vip) => (
+                  <VipFaceCard
+                    key={vip.id}
+                    vip={vip}
+                    isFiltering={filteringId === vip.id}
+                    disabled={filteringId !== null}
+                    onRemove={handleRemove}
+                    onFilter={async (v) => {
+                      setFilteringId(v.id)
+                      try {
+                        await filterByVipFace({ id: v.id, label: v.label || `Face #${v.face_index + 1}`, thumbnail_b64: v.thumbnail_b64 })
+                        onClose()
+                      } finally {
+                        setFilteringId(null)
+                      }
+                    }}
+                  />
+                ))}
+              </div>
             </div>
           )}
         </div>

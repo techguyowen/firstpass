@@ -359,17 +359,18 @@ def analyze_faces(image: np.ndarray) -> dict:
                 })
 
         # =========================================================================
-        # 4. Subject Hierarchy: Prioritize VIPs over distant bystanders
+        # 4. Subject Hierarchy: Prioritize primary subjects over distant bystanders
+        #    without auto-pinning faces as VIPs.
         # =========================================================================
         vip_closed_eyes = False
         if detected_faces:
             max_area = max(f["box"][2] * f["box"][3] for f in detected_faces)
             for f in detected_faces:
                 area = f["box"][2] * f["box"][3]
-                # A face is a primary VIP if it is at least 35% of the largest face
-                is_vip = area >= max_area * 0.35
-                f["is_vip"] = is_vip
-                if is_vip and f.get("has_closed_eyes", False):
+                is_primary_subject = area >= max_area * 0.35
+                f["is_primary_subject"] = is_primary_subject
+                f["is_vip"] = False
+                if is_primary_subject and f.get("has_closed_eyes", False):
                     vip_closed_eyes = True
 
         group_consistency_score = calculate_group_consistency(detected_faces)

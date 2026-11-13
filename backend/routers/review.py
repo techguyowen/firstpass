@@ -1245,23 +1245,24 @@ def add_vip_face(body: dict, db: Session = Depends(get_db)):
         if photo and photo.detected_faces_json:
             faces = json.loads(photo.detected_faces_json)
             if 0 <= face_index < len(faces):
-                box = faces[face_index].get("box", [])
+                face_entry = faces[face_index]
+                box = face_entry.get("box", [])
                 if len(box) == 4:
                     from backend.analyzer.pipeline import load_image
+                    from backend.analyzer.face_match import _crop_face_from_image
                     img, _ = load_image(photo.path)
+                    if img is None:
+                        thumb_fallback = THUMBNAILS_DIR / f"{photo_id}.jpg"
+                        if thumb_fallback.exists():
+                            img = cv2.imread(str(thumb_fallback))
                     if img is not None:
-                        ih, iw = img.shape[:2]
-                        x, y, w, h = box
-                        cx, cy = x + w / 2, y + h / 2
-                        side = int(max(w, h) * 1.5)
-                        x1 = max(0, int(cx - side / 2))
-                        y1 = max(0, int(cy - side / 2))
-                        x2 = min(iw, int(cx + side / 2))
-                        y2 = min(ih, int(cy + side / 2))
-                        crop = img[y1:y2, x1:x2]
-                        crop_resized = cv2.resize(crop, (128, 128))
-                        _, buf = cv2.imencode('.jpg', crop_resized, [cv2.IMWRITE_JPEG_QUALITY, 85])
-                        thumbnail_b64 = base64.b64encode(buf.tobytes()).decode('utf-8')
+                        det_w = int(face_entry.get("det_width") or photo.width or img.shape[1])
+                        det_h = int(face_entry.get("det_height") or photo.height or img.shape[0])
+                        crop = _crop_face_from_image(img, box, det_w, det_h)
+                        if crop is not None and crop.size > 0:
+                            crop_resized = cv2.resize(crop, (128, 128))
+                            _, buf = cv2.imencode('.jpg', crop_resized, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                            thumbnail_b64 = base64.b64encode(buf.tobytes()).decode('utf-8')
     except Exception as e:
         logger.warning(f"Could not generate VIP face thumbnail: {e}")
 
