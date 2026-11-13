@@ -269,8 +269,25 @@ def install_update():
             return {"success": True, "message": "Installer launched. Please complete installation."}
         elif "windows" in system:
             logger.info(f"Launching Windows installer: {file_path}")
-            os.startfile(file_path)
-            return {"success": True, "message": "Installer launched. Please complete installation."}
+            # Delay briefly so Electron + backend can exit and release file locks before NSIS writes
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
+            subprocess.Popen(
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-WindowStyle",
+                    "Hidden",
+                    "-Command",
+                    "Start-Sleep -Seconds 2; Start-Process -FilePath $env:FP_INSTALLER",
+                ],
+                env={**os.environ, "FP_INSTALLER": file_path},
+                creationflags=flags,
+            )
+            return {
+                "success": True,
+                "should_quit": True,
+                "message": "Installer launched. Closing FirstPass to complete update...",
+            }
         else:
             subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", str(file_path)])
             return {"success": True, "message": "Installer opened."}

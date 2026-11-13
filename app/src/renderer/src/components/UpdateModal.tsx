@@ -59,7 +59,10 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({ updateInfo, onClose })
   const handleInstall = async () => {
     try {
       setInstalling(true)
-      await api.installUpdate()
+      const res = await api.installUpdate()
+      if (res?.should_quit) {
+        setTimeout(() => window.close(), 150)
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to launch installer')
       setInstalling(false)

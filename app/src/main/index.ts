@@ -54,7 +54,17 @@ function persistApiSecret(): void {
   }
 }
 
-persistApiSecret()
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+    }
+  })
+}
 
 function getAppIcon(): Electron.NativeImage | undefined {
   const candidates = [
@@ -132,13 +142,21 @@ function startBackend(): void {
 
 function stopBackend(): void {
   if (backendProcess && !backendProcess.killed) {
+    const proc = backendProcess
+    backendProcess = null
     console.log('Stopping backend process...')
     try {
-      backendProcess.kill('SIGTERM')
+      if (process.platform === 'win32' && proc.pid) {
+        spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'], {
+          windowsHide: true,
+          stdio: 'ignore'
+        })
+      } else {
+        proc.kill('SIGTERM')
+      }
     } catch {
       // ignore
     }
-    backendProcess = null
   }
 }
 
@@ -1128,6 +1146,8 @@ function setupApplicationMenu(): void {
 }
 
 app.whenReady().then(() => {
+  if (!gotSingleInstanceLock) return
+  persistApiSecret()
   electronApp.setAppUserModelId('com.firstpass.app')
   const appIcon = getAppIcon()
   if (process.platform === 'darwin' && app.dock && appIcon) {

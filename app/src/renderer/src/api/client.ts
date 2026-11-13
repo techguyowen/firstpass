@@ -241,7 +241,7 @@ export const api = {
     return data
   },
 
-  async installUpdate(): Promise<{ success: boolean; message: string }> {
+  async installUpdate(): Promise<{ success: boolean; message: string; should_quit?: boolean }> {
     const { data } = await axiosInstance.post('/api/updater/install')
     return data
   },
@@ -298,7 +298,7 @@ export const api = {
   },
 
   async matchVipFace(vip_id: number, threshold?: number): Promise<{ vip_id: number; label: string; matched_photo_ids: number[]; matches: { photo_id: number; face_index: number; similarity: number }[] }> {
-    const { data } = await axiosInstance.post(`/api/vip-faces/${vip_id}/match`, threshold !== undefined ? { threshold } : {})
+    const { data } = await axiosInstance.post(`/api/vip-faces/${vip_id}/match`, threshold !== undefined ? { threshold } : {}, { timeout: 120000 })
     return data
   },
 

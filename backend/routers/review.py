@@ -42,6 +42,13 @@ _thumb_cache_lock = threading.Lock()
 _thumb_cache: "OrderedDict[int, bytes]" = OrderedDict()
 MAX_THUMB_CACHE_SIZE = 600
 
+
+def _folder_prefix(folder: str) -> str:
+    """Return folder path with a single trailing separator (safe for Windows drive roots like E:\\)."""
+    if folder.endswith((os.sep, "/")):
+        return folder
+    return folder + os.sep
+
 def _get_cached_thumbnail(photo_id: int):
     with _thumb_cache_lock:
         if photo_id in _thumb_cache:
@@ -235,7 +242,7 @@ def get_photos(
         )
     if folder:
         query = query.filter(
-            or_(PhotoModel.folder == folder, PhotoModel.folder.startswith(folder + os.sep))
+            or_(PhotoModel.folder == folder, PhotoModel.folder.startswith(_folder_prefix(folder)))
         )
     if status:
         query = query.filter(PhotoModel.status == status)
@@ -1035,7 +1042,7 @@ def remove_folder(
 ):
     """Remove all photos belonging to a folder from the database (keeps files safe on disk)."""
     deleted = db.query(PhotoModel).filter(
-        or_(PhotoModel.folder == folder, PhotoModel.folder.startswith(folder + os.sep))
+        or_(PhotoModel.folder == folder, PhotoModel.folder.startswith(_folder_prefix(folder)))
     ).delete(synchronize_session=False)
     db.commit()
     return {"success": True, "deleted": deleted, "folder": folder}
@@ -1051,7 +1058,7 @@ def apply_target_quota(req: TargetQuotaRequest, db: Session = Depends(get_db)):
     """
     query = db.query(PhotoModel)
     if req.folder:
-        query = query.filter(or_(PhotoModel.folder == req.folder, PhotoModel.folder.startswith(req.folder + os.sep)))
+        query = query.filter(or_(PhotoModel.folder == req.folder, PhotoModel.folder.startswith(_folder_prefix(req.folder))))
     photos = query.all()
     if not photos:
         raise HTTPException(status_code=400, detail="No photos found to cull.")
@@ -1091,7 +1098,7 @@ def cull_to_target(body: dict, db: Session = Depends(get_db)):
 
     query = db.query(PhotoModel).filter(PhotoModel.is_analyzed == True)
     if folder:
-        query = query.filter(or_(PhotoModel.folder == folder, PhotoModel.folder.startswith(folder + os.sep)))
+        query = query.filter(or_(PhotoModel.folder == folder, PhotoModel.folder.startswith(_folder_prefix(folder))))
 
     # Sort by overall_score descending, nulls last
     photos = query.order_by(PhotoModel.overall_score.desc().nullslast()).all()
@@ -1123,7 +1130,7 @@ def align_cameras(folder: Optional[str] = None, db: Session = Depends(get_db)):
     """
     query = db.query(PhotoModel)
     if folder:
-        query = query.filter(or_(PhotoModel.folder == folder, PhotoModel.folder.startswith(folder + os.sep)))
+        query = query.filter(or_(PhotoModel.folder == folder, PhotoModel.folder.startswith(_folder_prefix(folder))))
     photos = query.all()
     if not photos:
         raise HTTPException(status_code=400, detail="No photos found.")

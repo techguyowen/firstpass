@@ -18,6 +18,9 @@ from .raw_fastpath import load_bgr_fast
 
 logger = logging.getLogger(__name__)
 _thread_local = threading.local()
+_descriptor_cache_lock = threading.Lock()
+_descriptor_cache: Dict[tuple, np.ndarray] = {}
+_DESCRIPTOR_CACHE_MAX = 20000
 
 
 def _get_sface_path() -> Optional[str]:
@@ -145,12 +148,15 @@ def match_vip_face_across_photos(
     thumbnails_dir: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Return [{photo_id, face_index, similarity}, ...] sorted by similarity desc."""
+    use_sface = _get_thread_sface() is not None
     if threshold is None:
-        threshold = 0.363 if _get_thread_sface() is not None else 0.72
+        threshold = 0.363 if use_sface else 0.72
     target_bgr = decode_b64_bgr(target_b64)
     target_desc = extract_face_descriptor(target_bgr) if target_bgr is not None else None
     if target_desc is None:
         return []
+
+    mode_key = "sface" if use_sface else "hist"
 
     def _score_photo(photo: Any) -> Optional[Dict[str, Any]]:
         pid = getattr(photo, "id", None)
@@ -171,28 +177,54 @@ def match_vip_face_across_photos(
         if not faces:
             return None
 
-        img_bgr = None
-        if thumbnails_dir:
-            thumb_path = os.path.join(thumbnails_dir, f"{pid}.jpg")
-            if os.path.exists(thumb_path):
-                img_bgr = cv2.imread(thumb_path)
-        if img_bgr is None:
-            if not path or not os.path.exists(path):
-                return None
-            img_bgr, _ = load_bgr_fast(path, min_long_edge=720, prefer_embedded_preview=True)
-        if img_bgr is None:
-            return None
-
-        best_sim = -1.0
-        best_idx = 0
+        analyzed_at = str(getattr(photo, "analyzed_at", "") or "")
+        face_items = []
+        all_cached = True
         for idx, face in enumerate(faces):
             if not isinstance(face, dict):
                 continue
             box = face.get("box", [])
-            det_w = int(face.get("det_width") or getattr(photo, "width", 0) or img_bgr.shape[1])
-            det_h = int(face.get("det_height") or getattr(photo, "height", 0) or img_bgr.shape[0])
-            crop = _crop_face_from_image(img_bgr, box, det_w, det_h)
-            desc = extract_face_descriptor(crop) if crop is not None else None
+            if len(box) != 4:
+                continue
+            det_w = int(face.get("det_width") or getattr(photo, "width", 0) or 0)
+            det_h = int(face.get("det_height") or getattr(photo, "height", 0) or 0)
+            cache_key = (mode_key, pid, idx, tuple(box), det_w, det_h, analyzed_at)
+            with _descriptor_cache_lock:
+                cached_desc = _descriptor_cache.get(cache_key)
+            if cached_desc is None:
+                all_cached = False
+            face_items.append((idx, box, det_w, det_h, cache_key, cached_desc))
+
+        if not face_items:
+            return None
+
+        img_bgr = None
+        if not all_cached:
+            if thumbnails_dir:
+                thumb_path = os.path.join(thumbnails_dir, f"{pid}.jpg")
+                if os.path.exists(thumb_path):
+                    img_bgr = cv2.imread(thumb_path)
+            if img_bgr is None:
+                if not path or not os.path.exists(path):
+                    return None
+                img_bgr, _ = load_bgr_fast(path, min_long_edge=720, prefer_embedded_preview=True)
+            if img_bgr is None:
+                return None
+
+        best_sim = -1.0
+        best_idx = 0
+        for idx, box, det_w, det_h, cache_key, cached_desc in face_items:
+            desc = cached_desc
+            if desc is None:
+                eff_w = det_w or img_bgr.shape[1]
+                eff_h = det_h or img_bgr.shape[0]
+                crop = _crop_face_from_image(img_bgr, box, eff_w, eff_h)
+                desc = extract_face_descriptor(crop) if crop is not None else None
+                if desc is not None:
+                    with _descriptor_cache_lock:
+                        if len(_descriptor_cache) >= _DESCRIPTOR_CACHE_MAX:
+                            _descriptor_cache.clear()
+                        _descriptor_cache[cache_key] = desc
             if desc is None:
                 continue
             sim = float(np.dot(target_desc, desc))
