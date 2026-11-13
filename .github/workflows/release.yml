@@ -62,6 +62,8 @@ jobs:
           python -m pip install --upgrade pip
           if [ "${{ runner.os }}" = "Linux" ]; then
             pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          elif [ "${{ runner.os }}" = "Windows" ]; then
+            pip install "torch>=2.2.0,<2.5.0" "torchvision>=0.17.0,<0.20.0" --index-url https://download.pytorch.org/whl/cu124
           fi
           pip install -r backend/requirements.txt
           pip install pyinstaller
