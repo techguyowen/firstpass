@@ -1351,9 +1351,9 @@ def match_vip_face(vip_id: int, body: Optional[dict] = None, db: Session = Depen
     if not vip.thumbnail_b64:
         raise HTTPException(status_code=400, detail="VIP face has no crop thumbnail")
 
-    threshold = 0.72
+    threshold = None
     if body and isinstance(body.get("threshold"), (int, float)):
-        threshold = max(0.3, min(0.99, float(body["threshold"])))
+        threshold = max(0.2, min(0.99, float(body["threshold"])))
 
     from ..database import DATA_DIR
     thumbnails_dir = os.environ.get("FIRSTPASS_THUMBNAILS_DIR") or os.path.join(DATA_DIR, "thumbnails")

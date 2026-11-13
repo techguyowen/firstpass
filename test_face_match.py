@@ -27,7 +27,9 @@ def _make_face_patch(seed: int, size: int = 128) -> np.ndarray:
     return patch
 
 
-def test_match_vip_face_across_photos(tmp_path):
+def test_match_vip_face_across_photos(tmp_path, monkeypatch):
+    # Test deterministic descriptor matching without requiring real human face geometry
+    monkeypatch.setattr("backend.analyzer.face_match._get_thread_sface", lambda: None)
     target_face = _make_face_patch(seed=42)
     other_face = _make_face_patch(seed=999)
 

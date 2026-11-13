@@ -47,5 +47,31 @@ def main():
     else:
         print("dlib model already exists.")
 
+    # Download OpenCV YuNet face detection model (~233 KB)
+    yunet_path = os.path.join(MODELS_DIR, "face_detection_yunet_2023mar.onnx")
+    if not os.path.exists(yunet_path):
+        print("Downloading YuNet face detection model...")
+        yunet_url = "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
+        try:
+            download_url(yunet_url, yunet_path)
+            print("Done!")
+        except Exception as e:
+            print(f"Warning: Could not download YuNet model ({e}).")
+    else:
+        print("YuNet model already exists.")
+
+    # Download OpenCV SFace face recognition model (~38 MB)
+    sface_path = os.path.join(MODELS_DIR, "face_recognition_sface_2021dec.onnx")
+    if not os.path.exists(sface_path):
+        print("Downloading SFace face recognition model...")
+        sface_url = "https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx"
+        try:
+            download_url(sface_url, sface_path)
+            print("Done!")
+        except Exception as e:
+            print(f"Warning: Could not download SFace model ({e}).")
+    else:
+        print("SFace model already exists.")
+
 if __name__ == "__main__":
     main()

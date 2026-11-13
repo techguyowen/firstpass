@@ -7,6 +7,8 @@ import concurrent.futures
 import json
 import logging
 import os
+import sys
+import threading
 from typing import Any, Dict, List, Optional
 
 import cv2
@@ -15,16 +17,63 @@ import numpy as np
 from .raw_fastpath import load_bgr_fast
 
 logger = logging.getLogger(__name__)
+_thread_local = threading.local()
+
+
+def _get_sface_path() -> Optional[str]:
+    """Locate face_recognition_sface_2021dec.onnx in dev or PyInstaller bundle."""
+    filename = "face_recognition_sface_2021dec.onnx"
+    candidates = []
+    if hasattr(sys, "_MEIPASS"):
+        candidates.append(os.path.join(sys._MEIPASS, "models_data", filename))
+        candidates.append(os.path.join(sys._MEIPASS, filename))
+    exe_dir = os.path.dirname(sys.executable)
+    candidates.extend([
+        os.path.join(exe_dir, "models_data", filename),
+        os.path.join(exe_dir, "_internal", "models_data", filename),
+        os.path.join(exe_dir, "..", "models_data", filename),
+        os.path.join(os.path.dirname(__file__), "..", "models_data", filename),
+        os.path.join(os.path.dirname(__file__), "..", "..", "backend", "models_data", filename),
+        os.path.join(os.getcwd(), "backend", "models_data", filename),
+    ])
+    for c in candidates:
+        if os.path.exists(c):
+            return c
+    return None
+
+
+def _get_thread_sface():
+    if not hasattr(_thread_local, "sface_init"):
+        _thread_local.sface = None
+        if hasattr(cv2, "FaceRecognizerSF"):
+            sp = _get_sface_path()
+            if sp:
+                try:
+                    _thread_local.sface = cv2.FaceRecognizerSF.create(sp, "")
+                except Exception as e:
+                    logger.warning(f"Failed to load SFace recognizer: {e}")
+        _thread_local.sface_init = True
+    return _thread_local.sface
 
 
 def extract_face_descriptor(bgr_crop: np.ndarray) -> Optional[np.ndarray]:
-    """Compute an L2-normalized descriptor from a BGR face crop.
+    """Compute an L2-normalized face embedding from a BGR face crop.
 
-    Combines CLAHE-normalized 32x32 grayscale structure with a 4x4 spatial
-    HSV color histogram so matching works 100% offline with zero extra weights.
+    Uses OpenCV SFace (deep face recognition ONNX) when available, falling back
+    to CLAHE-normalized grayscale + spatial HSV histogram.
     """
     if bgr_crop is None or bgr_crop.size == 0:
         return None
+    sface = _get_thread_sface()
+    if sface is not None:
+        try:
+            aligned = cv2.resize(bgr_crop, (112, 112), interpolation=cv2.INTER_AREA)
+            feat = sface.feature(aligned).flatten().astype(np.float32)
+            norm = float(np.linalg.norm(feat))
+            if norm > 1e-8:
+                return (feat / norm).astype(np.float32)
+        except Exception as e:
+            logger.warning(f"SFace feature extraction failed, falling back: {e}")
     try:
         resized = cv2.resize(bgr_crop, (64, 64), interpolation=cv2.INTER_AREA)
         gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
@@ -92,10 +141,12 @@ def match_vip_face_across_photos(
     target_b64: str,
     photos: List[Any],
     source_photo_id: Optional[int] = None,
-    threshold: float = 0.72,
+    threshold: Optional[float] = None,
     thumbnails_dir: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Return [{photo_id, face_index, similarity}, ...] sorted by similarity desc."""
+    if threshold is None:
+        threshold = 0.363 if _get_thread_sface() is not None else 0.72
     target_bgr = decode_b64_bgr(target_b64)
     target_desc = extract_face_descriptor(target_bgr) if target_bgr is not None else None
     if target_desc is None:
