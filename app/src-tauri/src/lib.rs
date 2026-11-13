@@ -41,18 +41,24 @@ impl AppState {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let token = sidecar::generate_token();
-    if let Err(err) = sidecar::persist_token(&token) {
-        eprintln!("[firstpass] failed to persist session token: {err}");
-    }
     let child = sidecar::SharedChild::default();
     let state = AppState::new(token.clone(), child.clone());
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .manage(state)
         .setup(move |app| {
+            if let Err(err) = sidecar::persist_token(&token) {
+                eprintln!("[firstpass] failed to persist session token: {err}");
+            }
             app.set_menu(menu::build_app_menu(app.handle())?)?;
             let resource_dir = app.path().resource_dir().ok();
             match sidecar::spawn_backend(&token, resource_dir.as_deref()) {
@@ -72,12 +78,16 @@ pub fn run() {
             commands::get_api_secret,
             commands::show_item_in_folder,
             commands::get_log_path,
-            commands::update_menu_state
+            commands::update_menu_state,
+            commands::quit_app
         ])
         .build(tauri::generate_context!())
         .expect("failed to build FirstPass application")
         .run(move |app, event| {
-            if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
+            if matches!(
+                event,
+                tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+            ) {
                 let state = app.state::<AppState>();
                 sidecar::shutdown_shared(&state.child);
             }

@@ -148,10 +148,11 @@ def check_for_updates(db: Session = Depends(get_db)):
         # Match .dmg, preferring architecture if present
         dmg_assets = [a for a in assets if a.get("name", "").endswith(".dmg")]
         for a in dmg_assets:
-            if "arm64" in system_arch and "arm64" in a.get("name", "").lower():
+            asset_lower = a.get("name", "").lower()
+            if "arm64" in system_arch and ("arm64" in asset_lower or "aarch64" in asset_lower):
                 matched_asset = a
                 break
-            elif "x86" in system_arch and "x64" in a.get("name", "").lower():
+            elif "x86" in system_arch and ("x64" in asset_lower or "x86_64" in asset_lower):
                 matched_asset = a
                 break
         if not matched_asset and dmg_assets:

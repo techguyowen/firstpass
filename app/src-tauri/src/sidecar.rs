@@ -39,7 +39,19 @@ pub fn session_token_path() -> Option<PathBuf> {
 
 /// Path of the application log file.
 pub fn log_file_path() -> Option<PathBuf> {
-    firstpass_dir().map(|d| d.join("app.log"))
+    firstpass_dir().map(|d| d.join("firstpass.log"))
+}
+
+/// Hide child console windows on Windows GUI builds.
+fn configure_subprocess(cmd: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    let _ = cmd;
 }
 
 /// Persist the session token with owner-only permissions (0600 on Unix).
@@ -168,39 +180,51 @@ fn spawn_dev_backend(token: &str) -> std::io::Result<Child> {
         })
         .map(|path| path.to_string_lossy().into_owned())
         .unwrap_or_else(dev_fallback_interpreter);
-    Command::new(python)
-        .arg(script)
+    let mut cmd = Command::new(python);
+    cmd.arg(script)
         .env("PYTHONUNBUFFERED", "1")
         .env("FIRSTPASS_API_KEY", token)
-        .stdin(Stdio::null())
-        .spawn()
+        .stdin(Stdio::null());
+    configure_subprocess(&mut cmd);
+    cmd.spawn()
 }
 
-/// Production mode: run the bundled sidecar binary next to the executable.
+/// Production mode: run the bundled sidecar binary next to the executable or under resource directories.
 fn spawn_prod_backend(token: &str, resource_dir: Option<&Path>) -> std::io::Result<Child> {
-    let mut dirs: Vec<PathBuf> = Vec::new();
+    let mut base_dirs: Vec<PathBuf> = Vec::new();
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
-            dirs.push(parent.to_path_buf());
+            base_dirs.push(parent.to_path_buf());
+            base_dirs.push(parent.join("resources"));
             // macOS .app bundle: the executable lives in Contents/MacOS while
             // bundled resources live in Contents/Resources.
             if let Some(grandparent) = parent.parent() {
-                dirs.push(grandparent.join("Resources"));
+                base_dirs.push(grandparent.join("Resources"));
             }
         }
     }
     if let Some(dir) = resource_dir {
-        dirs.push(dir.to_path_buf());
+        base_dirs.push(dir.to_path_buf());
     }
-    for dir in &dirs {
+    let mut search_dirs: Vec<PathBuf> = Vec::new();
+    for base in base_dirs {
+        search_dirs.push(base.join("python-backend"));
+        search_dirs.push(base.join("_up_").join("python-backend"));
+        search_dirs.push(base);
+    }
+    for dir in &search_dirs {
         for name in PROD_BINARY_NAMES {
             let candidate = dir.join(name);
             if candidate.is_file() {
-                return Command::new(candidate)
+                let mut cmd = Command::new(&candidate);
+                cmd.current_dir(dir)
                     .env("PYTHONUNBUFFERED", "1")
                     .env("FIRSTPASS_API_KEY", token)
                     .stdin(Stdio::null())
-                    .spawn();
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null());
+                configure_subprocess(&mut cmd);
+                return cmd.spawn();
             }
         }
     }
@@ -217,9 +241,10 @@ pub fn shutdown_backend(child: &mut Child) {
     }
     #[cfg(windows)]
     {
-        let _ = Command::new("taskkill")
-            .args(["/PID", &pid, "/T", "/F"])
-            .status();
+        let mut cmd = Command::new("taskkill");
+        cmd.args(["/PID", &pid, "/T", "/F"]);
+        configure_subprocess(&mut cmd);
+        let _ = cmd.status();
     }
     for _ in 0..20 {
         match child.try_wait() {

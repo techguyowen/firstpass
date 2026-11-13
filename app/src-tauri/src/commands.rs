@@ -13,30 +13,36 @@ pub fn get_api_secret(state: State<'_, AppState>) -> String {
 /// Reveal `path` in the native file manager (Finder / Explorer / Files).
 #[tauri::command]
 pub fn show_item_in_folder(path: String) -> bool {
-    if cfg!(target_os = "macos") {
-        std::process::Command::new("open")
+    #[cfg(target_os = "macos")]
+    {
+        return std::process::Command::new("open")
             .arg("-R")
             .arg(&path)
             .status()
             .map(|status| status.success())
-            .unwrap_or(false)
-    } else if cfg!(target_os = "windows") {
-        std::process::Command::new("explorer.exe")
-            .arg(format!("/select,\"{path}\""))
-            .status()
-            .map(|status| status.success())
-            .unwrap_or(false)
-    } else {
+            .unwrap_or(false);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        let sanitized = path.replace('"', "");
+        return std::process::Command::new("explorer.exe")
+            .raw_arg(format!("/select,\"{sanitized}\""))
+            .spawn()
+            .is_ok();
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
         show_in_folder_linux(&path)
     }
 }
 
-/// Return the path of the application log file (`~/.firstpass/app.log`).
+/// Return the path of the application log file (`~/.firstpass/firstpass.log`).
 #[tauri::command]
 pub fn get_log_path() -> String {
     crate::sidecar::log_file_path()
         .map(|path| path.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "app.log".to_string())
+        .unwrap_or_else(|| "firstpass.log".to_string())
 }
 
 /// Receive active UI menu toggles (e.g. lockZoom, lockTurn) from the frontend.
@@ -45,7 +51,15 @@ pub fn update_menu_state(menu: State<'_, AppState>, state: serde_json::Value) {
     menu.set_menu_state(state);
 }
 
+/// Shut down the backend sidecar and exit cleanly (used during Windows auto-updates).
+#[tauri::command]
+pub fn quit_app(app: tauri::AppHandle, state: State<'_, AppState>) {
+    crate::sidecar::shutdown_shared(&state.child);
+    app.exit(0);
+}
+
 /// Linux: reveal via the FileManager1 D-Bus API, else xdg-open the parent dir.
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn show_in_folder_linux(path: &str) -> bool {
     let absolute =
         std::fs::canonicalize(path).unwrap_or_else(|_| std::path::PathBuf::from(path));

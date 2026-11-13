@@ -11,6 +11,7 @@ export interface NativeBridge {
   platform: string
   openFolderDialog: () => Promise<string | null>
   showSaveDialog: () => Promise<string | null>
+  quitApp: () => Promise<void>
   getAppVersion: () => Promise<string>
   getApiSecret: () => Promise<string>
   getApiSecretSync: () => string
@@ -57,17 +58,32 @@ export const nativeBridge: NativeBridge = {
   showSaveDialog: async () => {
     if (isTauri) {
       try {
-        const { save } = await import('@tauri-apps/plugin-dialog')
-        const path = await save({
+        const { open } = await import('@tauri-apps/plugin-dialog')
+        const selected = await open({
+          directory: true,
+          multiple: false,
           title: 'Select Destination Folder'
         })
-        return path ?? null
+        return typeof selected === 'string' ? selected : null
       } catch (err) {
         console.warn('Tauri showSaveDialog failed:', err)
         return null
       }
     }
     return window.electronAPI?.showSaveDialog() ?? null
+  },
+
+  quitApp: async () => {
+    if (isTauri) {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core')
+        await invoke('quit_app')
+        return
+      } catch (err) {
+        console.warn('Tauri quitApp failed:', err)
+      }
+    }
+    window.close()
   },
 
   getAppVersion: async () => {

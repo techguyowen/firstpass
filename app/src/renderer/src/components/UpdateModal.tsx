@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Download, CheckCircle, AlertCircle, RefreshCw, X, Sparkles, ExternalLink } from 'lucide-react'
 import { api } from '../api/client'
+import { nativeBridge } from '../utils/nativeBridge'
 import type { UpdateCheckResponse, UpdateProgressResponse } from '../types/photo'
 
 interface UpdateModalProps {
@@ -61,7 +62,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({ updateInfo, onClose })
       setInstalling(true)
       const res = await api.installUpdate()
       if (res?.should_quit) {
-        setTimeout(() => window.close(), 150)
+        setTimeout(() => { void nativeBridge.quitApp() }, 150)
       }
     } catch (err: any) {
       setError(err.message || 'Failed to launch installer')

@@ -11,19 +11,13 @@
   },
   "main": "out/main/index.js",
   "scripts": {
-    "patch-dev": "node scripts/patch-electron-dev.cjs",
-    "dev": "npm run patch-dev && electron-vite dev",
-    "postinstall": "npm run patch-dev",
-    "build": "electron-vite build",
-    "preview": "electron-vite preview",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
     "typecheck": "tsc --build --noEmit",
-    "package": "npm run build && electron-builder",
-    "package:mac": "npm run build && electron-builder --mac",
-    "package:win": "npm run build && electron-builder --win",
-    "package:linux": "npm run build && electron-builder --linux",
     "tauri": "tauri",
-    "tauri:dev": "npm run build && tauri dev",
-    "tauri:build": "npm run build && tauri build"
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
