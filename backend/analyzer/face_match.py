@@ -93,6 +93,7 @@ def match_vip_face_across_photos(
     photos: List[Any],
     source_photo_id: Optional[int] = None,
     threshold: float = 0.72,
+    thumbnails_dir: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Return [{photo_id, face_index, similarity}, ...] sorted by similarity desc."""
     target_bgr = decode_b64_bgr(target_b64)
@@ -109,7 +110,7 @@ def match_vip_face_across_photos(
 
         faces_json = getattr(photo, "detected_faces_json", None)
         path = getattr(photo, "path", None)
-        if not faces_json or not path or not os.path.exists(path):
+        if not faces_json:
             return None
 
         try:
@@ -119,7 +120,15 @@ def match_vip_face_across_photos(
         if not faces:
             return None
 
-        img_bgr, _ = load_bgr_fast(path, min_long_edge=720, prefer_embedded_preview=True)
+        img_bgr = None
+        if thumbnails_dir:
+            thumb_path = os.path.join(thumbnails_dir, f"{pid}.jpg")
+            if os.path.exists(thumb_path):
+                img_bgr = cv2.imread(thumb_path)
+        if img_bgr is None:
+            if not path or not os.path.exists(path):
+                return None
+            img_bgr, _ = load_bgr_fast(path, min_long_edge=720, prefer_embedded_preview=True)
         if img_bgr is None:
             return None
 

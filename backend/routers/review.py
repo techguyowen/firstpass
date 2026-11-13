@@ -1355,12 +1355,15 @@ def match_vip_face(vip_id: int, body: Optional[dict] = None, db: Session = Depen
     if body and isinstance(body.get("threshold"), (int, float)):
         threshold = max(0.3, min(0.99, float(body["threshold"])))
 
+    from ..database import DATA_DIR
+    thumbnails_dir = os.environ.get("FIRSTPASS_THUMBNAILS_DIR") or os.path.join(DATA_DIR, "thumbnails")
     candidates = db.query(PhotoModel).filter(PhotoModel.face_count > 0).all()
     matches = match_vip_face_across_photos(
         vip.thumbnail_b64,
         candidates,
         source_photo_id=vip.photo_id,
         threshold=threshold,
+        thumbnails_dir=thumbnails_dir,
     )
     return {
         "vip_id": vip.id,
