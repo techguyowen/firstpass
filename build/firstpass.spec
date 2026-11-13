@@ -154,7 +154,6 @@ a = Analysis(
         "notebook",
         "IPython",
         "pytest",
-        "unittest",
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,

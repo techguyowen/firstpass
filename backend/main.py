@@ -59,6 +59,12 @@ def _load_or_create_api_secret() -> str:
 
 API_SECRET = _load_or_create_api_secret()
 
+# ── Ensure valid stdio streams in windowed (console=False) PyInstaller builds ─
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w", encoding="utf-8")
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, "w", encoding="utf-8")
+
 # ── Logging ────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
@@ -71,17 +77,16 @@ logging.basicConfig(
 logger = logging.getLogger("firstpass")
 
 # ── Setup import paths for standalone / PyInstaller ────────────────────────
-_backend_dir = Path(__file__).resolve().parent
-_project_root = _backend_dir.parent
-for _p in [str(_project_root), str(_backend_dir)]:
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
-if "backend" not in sys.modules:
-    import types
-    _pkg = types.ModuleType("backend")
-    _pkg.__path__ = [str(_backend_dir)]
-    sys.modules["backend"] = _pkg
+if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+    _meipass = str(Path(sys._MEIPASS))
+    if _meipass not in sys.path:
+        sys.path.insert(0, _meipass)
+else:
+    _backend_dir = Path(__file__).resolve().parent
+    _project_root = _backend_dir.parent
+    for _p in [str(_project_root), str(_backend_dir)]:
+        if _p not in sys.path:
+            sys.path.insert(0, _p)
 
 # ── Database + models ──────────────────────────────────────────────────────
 from backend.database import engine, Base, auto_migrate
@@ -261,9 +266,10 @@ if __name__ == "__main__":
     PORT = int(os.environ.get("FIRSTPASS_PORT", os.environ.get("PHOTO_CULLER_PORT", 58765)))
     logger.info(f"Listening on port {PORT}")
     uvicorn.run(
-        "main:app",
+        app,
         host="127.0.0.1",
         port=PORT,
         log_level="info",
         reload=False,
+        loop="asyncio",
     )
