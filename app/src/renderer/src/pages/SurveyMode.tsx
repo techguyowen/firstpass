@@ -7,6 +7,7 @@ import {
   SkipForward, Eye, Loader2,
 } from 'lucide-react'
 import { api } from '../api/client'
+import { getFilteredPhotos, usePhotosStore } from '../store/photosStore'
 import type { Photo } from '../types/photo'
 
 type Scope = 'rejected' | 'pending'
@@ -24,6 +25,7 @@ function rejectionTags(photo: Photo): string[] {
 
 export default function SurveyMode() {
   const navigate = useNavigate()
+  const { activeVipFilter, clearVipFilter, filters } = usePhotosStore()
   const [scope, setScope] = useState<Scope>('rejected')
   const [queue, setQueue] = useState<Photo[]>([])
   const [idx, setIdx] = useState(0)
@@ -35,8 +37,15 @@ export default function SurveyMode() {
   const loadQueue = useCallback(async (s: Scope) => {
     setLoading(true)
     try {
-      const res = await api.getPhotos({ status: s, per_page: 9999, sort_by: 'overall_score_desc' })
-      setQueue(res.photos)
+      const res = await api.getPhotos({
+        status: s,
+        folder: filters.folder,
+        search: filters.search,
+        per_page: 9999,
+        sort_by: 'overall_score_desc',
+      })
+      const scoped = getFilteredPhotos(res.photos, activeVipFilter)
+      setQueue(scoped)
       setIdx(0)
       setRescued(0)
       setKept(0)
@@ -46,7 +55,7 @@ export default function SurveyMode() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [activeVipFilter, filters.folder, filters.search])
 
   useEffect(() => {
     loadQueue(scope)
@@ -155,6 +164,16 @@ export default function SurveyMode() {
           ))}
         </div>
         <div className="flex-1" />
+        {activeVipFilter && (
+          <button
+            onClick={clearVipFilter}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 hover:text-white text-xs font-medium cursor-pointer shrink-0"
+            title="Clear single-person filter"
+          >
+            <span>Person: {activeVipFilter.label}</span>
+            <span className="text-indigo-400">×</span>
+          </button>
+        )}
         <button
           onClick={exit}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white text-xs rounded-lg border border-neutral-700 transition-colors cursor-pointer"

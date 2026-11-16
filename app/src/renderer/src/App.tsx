@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
-import { usePhotosStore } from './store/photosStore';
+import { getFilteredPhotos, usePhotosStore } from './store/photosStore';
 import { Settings as SettingsIcon, LayoutGrid, Columns, Download, HelpCircle, BookOpen, Eye, Palette, FolderUp, ListFilter, Github } from 'lucide-react';
 import Gallery from './pages/Gallery';
 import Review from './pages/Review';
@@ -26,7 +26,7 @@ import DragDropOverlay from './components/DragDropOverlay';
 export default function App() {
   const {
     checkHealth, fetchPhotos, backendReady, totalPhotos, gpuAvailable,
-    activePhotoId, lastReviewedPhotoId, photos, startScan, undo, redo,
+    activePhotoId, lastReviewedPhotoId, photos, activeVipFilter, startScan, undo, redo,
     autoAdvance, toggleAutoAdvance
   } = usePhotosStore();
   const [retrying, setRetrying] = useState(true);
@@ -462,8 +462,12 @@ export default function App() {
     navigate('/');
   };
 
+  const scopedPhotos = getFilteredPhotos(photos, activeVipFilter);
+
   const handleGoReview = () => {
-    const targetId = activePhotoId || lastReviewedPhotoId || photos[0]?.id;
+    const candidateId = activePhotoId || lastReviewedPhotoId;
+    const inScope = candidateId && scopedPhotos.some((p) => p.id === candidateId);
+    const targetId = inScope ? candidateId : scopedPhotos[0]?.id;
     if (targetId) {
       navigate(`/review/${targetId}`);
     } else {
@@ -472,11 +476,13 @@ export default function App() {
   };
 
   const handleGoCompare = () => {
-    const targetId = activePhotoId || lastReviewedPhotoId || photos[0]?.id;
-    if (targetId && photos.length > 1) {
-      const idx = photos.findIndex((p) => p.id === targetId);
-      const neighborIdx = idx > 0 ? idx - 1 : Math.min(photos.length - 1, idx + 1);
-      navigate(`/compare?ids=${photos[neighborIdx]?.id},${targetId}&returnTo=${location.pathname}`);
+    const candidateId = activePhotoId || lastReviewedPhotoId;
+    const inScope = candidateId && scopedPhotos.some((p) => p.id === candidateId);
+    const targetId = inScope ? candidateId : scopedPhotos[0]?.id;
+    if (targetId && scopedPhotos.length > 1) {
+      const idx = scopedPhotos.findIndex((p) => p.id === targetId);
+      const neighborIdx = idx > 0 ? idx - 1 : Math.min(scopedPhotos.length - 1, idx + 1);
+      navigate(`/compare?ids=${scopedPhotos[neighborIdx]?.id},${targetId}&returnTo=${location.pathname}`);
     } else {
       navigate('/compare');
     }

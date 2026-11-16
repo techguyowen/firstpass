@@ -8,7 +8,7 @@ import {
   RefreshCw, Columns, FolderUp, Bookmark, Target, Sparkles, Search, Layers, BarChart2, Star,
   Eye, Paintbrush, Crosshair, SlidersHorizontal, X
 } from 'lucide-react'
-import { usePhotosStore } from '../store/photosStore'
+import { getFilteredPhotos, usePhotosStore } from '../store/photosStore'
 import { matchesShortcut, subscribeShortcuts } from '../utils/shortcutsManager'
 import { playShutterSound, playRejectSound, playResetSound } from '../utils/audioFeedback'
 import { STRICTNESS_PRESETS, closestStrictnessIndex } from '../utils/strictness'
@@ -39,7 +39,7 @@ export default function Gallery() {
     scanProgress, analyzeProgress, gpuAvailable, gpuType, settings, viewOptions, setViewOptions,
     startScan, startAnalysis, startReanalysis, loadPhotos, updatePhotoStatusLocal,
     setPhotoStatusWithUndo, undo, redo, undoStack, redoStack, lastReviewedPhotoId,
-    activePhotoId, setActivePhotoId, autoAdvance, toggleAutoAdvance, togglePhotoTag, resetLibrary
+    activePhotoId, setActivePhotoId, autoAdvance, toggleAutoAdvance, togglePhotoTag, tagPhotos, resetLibrary
   } = usePhotosStore()
 
   const columnCount = viewOptions.columns || 4
@@ -112,10 +112,13 @@ export default function Gallery() {
   const activeVipFilter = usePhotosStore((s) => s.activeVipFilter)
   const clearVipFilter = usePhotosStore((s) => s.clearVipFilter)
 
+  const filteredPhotos = useMemo(
+    () => getFilteredPhotos(photos, activeVipFilter),
+    [photos, activeVipFilter]
+  )
+
   const displayedPhotos = useMemo(() => {
-    const base = activeVipFilter
-      ? photos.filter((p) => activeVipFilter.matchedIds.includes(p.id))
-      : photos
+    const base = filteredPhotos
     if (viewOptions.collapseBursts === false) return base
     return base.filter(p => {
       if (!p.burst_group_id) return true
@@ -129,7 +132,7 @@ export default function Gallery() {
       const first = base.find(x => x.burst_group_id === p.burst_group_id)
       return first?.id === p.id
     })
-  }, [photos, activeVipFilter, viewOptions.collapseBursts, expandedBursts, burstCounts])
+  }, [filteredPhotos, viewOptions.collapseBursts, expandedBursts, burstCounts])
 
   // Keep focusedIdx within bounds
   useEffect(() => {
@@ -981,6 +984,30 @@ export default function Gallery() {
               <span className="text-indigo-400">×</span>
             </button>
           )}
+          {(activeVipFilter || filters.search || filters.status || filters.folder || filters.min_score || filters.is_blurry || filters.is_bokeh || filters.exposure_type || filters.has_faces || filters.has_closed_eyes) && filteredPhotos.length > 0 && (
+            <div className="hidden md:flex items-center gap-1">
+              <button
+                onClick={() => tagPhotos(filteredPhotos.map(p => p.id), true)}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-300 hover:bg-amber-500/25 hover:text-white text-[11px] font-medium cursor-pointer transition-colors"
+                title={`Tag all ${filteredPhotos.length} filtered photos for export`}
+              >
+                <Bookmark size={10} />
+                <span>Tag Filtered ({filteredPhotos.length})</span>
+              </button>
+              <button
+                onClick={() => {
+                  window.dispatchEvent(new CustomEvent('app:open-export', {
+                    detail: { selectedIds: filteredPhotos.map(p => p.id), initialScope: 'selected' }
+                  }))
+                }}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-500/15 border border-indigo-500/40 text-indigo-300 hover:bg-indigo-500/25 hover:text-white text-[11px] font-medium cursor-pointer transition-colors"
+                title={`Export all ${filteredPhotos.length} filtered photos`}
+              >
+                <FolderUp size={10} />
+                <span>Export Filtered</span>
+              </button>
+            </div>
+          )}
           <span className="flex items-center gap-1 text-emerald-400 font-medium">
             <CheckCircle2 size={13} />{stats.accepted}
           </span>
@@ -1051,6 +1078,12 @@ export default function Gallery() {
             className="flex items-center gap-1 px-3 py-1 bg-rose-700 hover:bg-rose-600 text-white text-xs rounded-md"
           >
             <XCircle size={12} /> Reject All
+          </button>
+          <button
+            onClick={() => tagPhotos(Array.from(selected), true)}
+            className="flex items-center gap-1 px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white text-xs rounded-md"
+          >
+            <Bookmark size={12} /> Tag All
           </button>
           {selected.size >= 2 && selected.size <= 4 && (
             <button

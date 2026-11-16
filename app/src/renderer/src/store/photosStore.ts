@@ -48,7 +48,20 @@ const defaultViewOptions: ViewOptions = {
   collapseBursts: true,
 }
 
-export interface UndoRecord {
+export interface ActiveVipFilter {
+  id: number
+  label: string
+  thumbnail_b64?: string | null
+  matchedIds: number[]
+}
+
+export function getFilteredPhotos(photos: Photo[], activeVipFilter: ActiveVipFilter | null): Photo[] {
+  if (!activeVipFilter) return photos
+  const matchedSet = new Set(activeVipFilter.matchedIds)
+  return photos.filter((p) => matchedSet.has(p.id))
+}
+
+interface UndoRecord {
   photoId: number
   previousStatus: Photo['status']
   newStatus: Photo['status']
@@ -97,6 +110,7 @@ interface PhotosStore {
   toggleAutoAdvance: () => void
   setFilmstripPosition: (pos: 'bottom' | 'side' | 'floating' | 'hidden') => void
   togglePhotoTag: (photoId: number) => Promise<void>
+  tagPhotos: (photoIds: number[], isTagged: boolean) => Promise<void>
   setPhotos: (photos: Photo[]) => void
   setFitMode: (mode: 'contain' | 'cover') => void
   setViewOptions: (options: Partial<ViewOptions>) => void
@@ -117,7 +131,7 @@ interface PhotosStore {
   removeFolder: (folderPath: string) => Promise<void>
   resetLibrary: () => Promise<void>
   fetchPhotos: () => Promise<void>  // alias
-  activeVipFilter: { id: number; label: string; thumbnail_b64?: string | null; matchedIds: number[] } | null
+  activeVipFilter: ActiveVipFilter | null
   filterByVipFace: (vip: { id: number; label: string; thumbnail_b64?: string | null }) => Promise<void>
   clearVipFilter: () => void
 }
@@ -199,6 +213,30 @@ export const usePhotosStore = create<PhotosStore>((set, get) => ({
         currentPhoto: get().currentPhoto?.id === photoId ? target || null : get().currentPhoto
       })
       toast.error('Failed to update tag')
+    }
+  },
+
+  tagPhotos: async (photoIds: number[], isTagged: boolean) => {
+    const uniqueIds = Array.from(new Set(photoIds))
+    if (uniqueIds.length === 0) return
+    const idSet = new Set(uniqueIds)
+    const prevPhotos = get().photos
+    const prevCurrent = get().currentPhoto
+    set({
+      photos: prevPhotos.map((p) => (idSet.has(p.id) ? { ...p, is_tagged: isTagged } : p)),
+      currentPhoto: prevCurrent && idSet.has(prevCurrent.id) ? { ...prevCurrent, is_tagged: isTagged } : prevCurrent,
+    })
+    const toastId = toast.loading(`${isTagged ? 'Tagging' : 'Untagging'} ${uniqueIds.length} photo(s)…`)
+    try {
+      const BATCH = 12
+      for (let i = 0; i < uniqueIds.length; i += BATCH) {
+        const chunk = uniqueIds.slice(i, i + BATCH)
+        await Promise.all(chunk.map((id) => api.toggleTag(id, isTagged)))
+      }
+      toast.success(`${isTagged ? '🏷️ Tagged' : 'Untagged'} ${uniqueIds.length} photo(s)`, { id: toastId })
+    } catch {
+      set({ photos: prevPhotos, currentPhoto: prevCurrent })
+      toast.error('Failed to update tags for some photos', { id: toastId })
     }
   },
 

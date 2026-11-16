@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { FolderUp, Copy, Trash2, CheckCircle2, X, Folder, Sparkles, AlertTriangle, Target } from 'lucide-react'
 import { api } from '../api/client'
-import { usePhotosStore } from '../store/photosStore'
+import { getFilteredPhotos, usePhotosStore } from '../store/photosStore'
 import { nativeBridge } from '../utils/nativeBridge'
 import toast from 'react-hot-toast'
 import type { JobStatus, Photo } from '../types/photo'
@@ -13,12 +13,17 @@ interface ExportModalProps {
 }
 
 export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds = [], initialScope }) => {
-  const { photos, loadPhotos } = usePhotosStore()
+  const { photos, loadPhotos, activeVipFilter } = usePhotosStore()
+  const [limitToActiveFilter, setLimitToActiveFilter] = useState(true)
 
-  const acceptedPhotos = photos.filter((p) => p.status === 'accepted')
-  const rejectedPhotos = photos.filter((p) => p.status === 'rejected')
-  const taggedPhotos = photos.filter((p) => Boolean(p.is_tagged))
-  const selectedPhotos = photos.filter((p) => selectedIds.includes(p.id))
+  const scopedPhotos = (activeVipFilter && limitToActiveFilter)
+    ? getFilteredPhotos(photos, activeVipFilter)
+    : photos
+
+  const acceptedPhotos = scopedPhotos.filter((p) => p.status === 'accepted')
+  const rejectedPhotos = scopedPhotos.filter((p) => p.status === 'rejected')
+  const taggedPhotos = scopedPhotos.filter((p) => Boolean(p.is_tagged))
+  const selectedPhotos = scopedPhotos.filter((p) => selectedIds.includes(p.id))
   const taggedSelectedPhotos = selectedPhotos.filter((p) => Boolean(p.is_tagged))
 
   const [scope, setScope] = useState<'accepted' | 'tagged' | 'tagged_selected' | 'rejected' | 'selected'>(() => {
@@ -180,6 +185,23 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
             <p className="text-xs text-gray-400">Save keepers or clean up rejected files</p>
           </div>
         </div>
+
+        {activeVipFilter && (
+          <div className="mb-4 rounded-xl border border-indigo-500/40 bg-indigo-500/10 px-3 py-2 flex items-center justify-between gap-2">
+            <span className="text-xs text-indigo-200 font-medium">
+              {limitToActiveFilter
+                ? `Scoped to Person: ${activeVipFilter.label} (${scopedPhotos.length} photo${scopedPhotos.length === 1 ? '' : 's'})`
+                : `Exporting across entire shoot (${photos.length} photos)`}
+            </span>
+            <button
+              type="button"
+              onClick={() => setLimitToActiveFilter((v) => !v)}
+              className="text-[11px] font-semibold text-indigo-300 hover:text-white underline cursor-pointer shrink-0"
+            >
+              {limitToActiveFilter ? 'Include entire shoot' : 'Scope to filtered'}
+            </button>
+          </div>
+        )}
 
         {/* Automated Pre-Flight Sanity Card */}
         {hasFlags ? (

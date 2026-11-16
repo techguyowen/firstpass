@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft, Check, X, ZoomIn, ZoomOut, Crown, Camera, Sparkles,
@@ -14,7 +14,7 @@ import {
   rotateFaceCenter,
   type FaceBox,
 } from '../utils/faceZoom'
-import { usePhotosStore } from '../store/photosStore'
+import { getFilteredPhotos, usePhotosStore } from '../store/photosStore'
 import { matchesShortcut, subscribeShortcuts } from '../utils/shortcutsManager'
 import { nativeBridge } from '../utils/nativeBridge'
 import type { Photo } from '../types/photo'
@@ -24,7 +24,11 @@ import FirstPassLoader from '../components/FirstPassLoader'
 export const Compare: React.FC = () => {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { photos: storePhotos, updatePhotoStatusLocal, setActivePhotoId, fetchPhotos, togglePhotoTag } = usePhotosStore()
+  const { photos: storePhotos, activeVipFilter, clearVipFilter, updatePhotoStatusLocal, setActivePhotoId, fetchPhotos, togglePhotoTag } = usePhotosStore()
+  const filteredPhotos = useMemo(
+    () => getFilteredPhotos(storePhotos, activeVipFilter),
+    [storePhotos, activeVipFilter]
+  )
 
   const returnTo = searchParams.get('returnTo') || '/'
   const handleBack = useCallback(() => navigate(returnTo), [navigate, returnTo])
@@ -370,14 +374,14 @@ export const Compare: React.FC = () => {
         })
         .finally(() => setLoading(false))
     } else {
-      // Default to activePhotoId and neighbor, or first 2 photos
+      // Default to activePhotoId and neighbor, or first 2 photos in active scope
       const activeId = usePhotosStore.getState().activePhotoId || usePhotosStore.getState().lastReviewedPhotoId
-      if (activeId && storePhotos.length > 1) {
-        const idx = storePhotos.findIndex((p) => p.id === activeId)
+      if (activeId && filteredPhotos.length > 1) {
+        const idx = filteredPhotos.findIndex((p) => p.id === activeId)
         if (idx !== -1) {
           const neighborIdx = idx > 0 ? idx - 1 : 1
-          const neighborPhoto = storePhotos[neighborIdx]
-          const activePhoto = storePhotos[idx]
+          const neighborPhoto = filteredPhotos[neighborIdx]
+          const activePhoto = filteredPhotos[idx]
           if (neighborPhoto && activePhoto) {
             setComparePhotos([neighborPhoto, activePhoto])
             setLoading(false)
@@ -385,7 +389,7 @@ export const Compare: React.FC = () => {
           }
         }
       }
-      const validStore = storePhotos.filter((p): p is Photo => Boolean(p && p.id))
+      const validStore = filteredPhotos.filter((p): p is Photo => Boolean(p && p.id))
       if (validStore.length >= 2) {
         setComparePhotos([validStore[0], validStore[1]])
       } else if (validStore.length === 1) {
@@ -393,7 +397,7 @@ export const Compare: React.FC = () => {
       }
       setLoading(false)
     }
-  }, [searchParams, storePhotos, setActivePhotoId])
+  }, [searchParams, filteredPhotos, setActivePhotoId])
 
   // Update status
   const handleSetStatus = useCallback(async (id: number, status: 'accepted' | 'rejected' | 'pending') => {
@@ -410,7 +414,8 @@ export const Compare: React.FC = () => {
 
   // Next chronological un-evaluated frame not already slotted (fallback: any unslotted frame).
   const getNextQueuedPhoto = useCallback((currentIds: number[]): Photo | undefined => {
-    const all = usePhotosStore.getState().photos.filter((p): p is Photo => Boolean(p && p.id))
+    const st = usePhotosStore.getState()
+    const all = getFilteredPhotos(st.photos, st.activeVipFilter).filter((p): p is Photo => Boolean(p && p.id))
     return all.find((p) => !currentIds.includes(p.id) && p.status === 'pending')
       ?? all.find((p) => !currentIds.includes(p.id))
   }, [])
@@ -1225,6 +1230,16 @@ export const Compare: React.FC = () => {
 
         {/* Right Controls: Zoom, Match View & Filmstrip Toggle */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {activeVipFilter && (
+            <button
+              onClick={clearVipFilter}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 hover:text-white text-[11px] font-medium cursor-pointer shrink-0"
+              title="Clear single-person filter"
+            >
+              <span className="truncate max-w-[100px]">Person: {activeVipFilter.label}</span>
+              <span className="text-indigo-400">×</span>
+            </button>
+          )}
           {/* Per-Slot Zoom Controls (applies to the active slot) */}
           <div className="flex items-center gap-1 bg-neutral-950 px-2 py-1 rounded-lg border border-neutral-800 text-xs shrink-0">
             <button
@@ -1609,12 +1624,12 @@ export const Compare: React.FC = () => {
       </div>
 
       {/* Bottom Horizontal Filmstrip */}
-      {showFilmstrip && storePhotos.length > 0 && (
+      {showFilmstrip && filteredPhotos.length > 0 && (
         <div
           ref={filmstripRef}
           className="h-20 bg-neutral-900/95 border-t border-neutral-800 px-3 flex items-center gap-2 overflow-x-auto shrink-0 z-20"
         >
-          {storePhotos.map((p, idx) => {
+          {filteredPhotos.map((p, idx) => {
             const isRef = comparePhotos[0]?.id === p.id
             const slottedIdx = comparePhotos.findIndex((q) => q?.id === p.id)
             const isCand = slottedIdx > 0 && slottedIdx < slotCount

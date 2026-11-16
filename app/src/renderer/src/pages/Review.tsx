@@ -52,7 +52,7 @@ import {
   PRESET_WORKSPACES,
   WorkspaceLayout
 } from '../utils/workspaceManager'
-import { usePhotosStore } from '../store/photosStore'
+import { getFilteredPhotos, usePhotosStore } from '../store/photosStore'
 import { matchesShortcut, getPrimaryShortcutKey, subscribeShortcuts } from '../utils/shortcutsManager'
 import { preloadAndDecodeImage, isImageDecoded, setNavigationDirection, getRamCachedImageUrl, isPhotoInRam, triggerPredictiveLookahead } from '../utils/imagePreloader'
 import {
@@ -100,8 +100,15 @@ export default function Review() {
     toggleAutoAdvance,
     filmstripPosition,
     setFilmstripPosition,
-    togglePhotoTag
+    togglePhotoTag,
+    activeVipFilter,
+    clearVipFilter
   } = usePhotosStore()
+
+  const filteredPhotos = React.useMemo(
+    () => getFilteredPhotos(photos, activeVipFilter),
+    [photos, activeVipFilter]
+  )
 
   const photoId = parseInt(id || '0', 10)
   const storePhoto = photos.find(p => p.id === photoId)
@@ -1205,9 +1212,9 @@ export default function Review() {
     }
   }, [photos, photo?.id])
 
-  const currentIndex = photos.findIndex(p => p.id === photoId)
-  const prevPhoto = currentIndex > 0 ? photos[currentIndex - 1] : null
-  const nextPhoto = currentIndex < photos.length - 1 ? photos[currentIndex + 1] : null
+  const currentIndex = filteredPhotos.findIndex(p => p.id === photoId)
+  const prevPhoto = currentIndex > 0 ? filteredPhotos[currentIndex - 1] : null
+  const nextPhoto = currentIndex < filteredPhotos.length - 1 ? filteredPhotos[currentIndex + 1] : null
 
   const handleOpenCompare = useCallback(() => {
     if (!photo) return
@@ -2239,8 +2246,18 @@ export default function Review() {
             </span>
             {currentIndex >= 0 && (
               <span className="text-neutral-400 text-[11px] font-mono shrink-0 bg-neutral-800/90 px-1.5 py-0.5 rounded border border-neutral-700/50 hidden lg:inline-block">
-                {currentIndex + 1} / {photos.length}
+                {currentIndex + 1} / {filteredPhotos.length}
               </span>
+            )}
+            {activeVipFilter && (
+              <button
+                onClick={clearVipFilter}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 hover:text-white text-[11px] font-medium cursor-pointer shrink-0"
+                title="Clear single-person filter"
+              >
+                <span className="truncate max-w-[100px]">Person: {activeVipFilter.label}</span>
+                <span className="text-indigo-400">×</span>
+              </button>
             )}
           </div>
 
@@ -3395,7 +3412,7 @@ export default function Review() {
               lightsOutLevel === 2 && "lights-out-blackout pointer-events-none"
             )}>
               <Filmstrip
-                photos={photos}
+                photos={filteredPhotos}
                 currentPhotoId={photo.id}
                 position="bottom"
                 fillHeight={true}
@@ -3531,7 +3548,7 @@ export default function Review() {
           lightsOutLevel === 2 && "lights-out-blackout pointer-events-none"
         )}>
           <DraggablePanel
-            title={`Filmstrip (${photos.findIndex(p => p.id === photo.id) + 1}/${photos.length})`}
+            title={`Filmstrip (${filteredPhotos.findIndex(p => p.id === photo.id) + 1}/${filteredPhotos.length})`}
             icon={<Film size={13} className="text-blue-400" />}
             storageKey="firstpass_filmstrip_panel_pos"
             defaultPosition={{ x: Math.max(20, Math.round(window.innerWidth / 2 - 300)), y: Math.max(60, window.innerHeight - 200) }}
@@ -3570,7 +3587,7 @@ export default function Review() {
           >
             <div className="flex-1 min-h-0 -m-3 h-full">
               <Filmstrip
-                photos={photos}
+                photos={filteredPhotos}
                 currentPhotoId={photo.id}
                 position="floating"
                 fillHeight={true}
@@ -3593,7 +3610,7 @@ export default function Review() {
           lightsOutLevel === 2 && "lights-out-blackout pointer-events-none"
         )}>
           <Filmstrip
-            photos={photos}
+            photos={filteredPhotos}
             currentPhotoId={photo.id}
             position="side"
             onSelectPhoto={(pid) => navigate(`/review/${pid}`)}
