@@ -43,11 +43,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
   const [destFolder, setDestFolder] = useState<string>(() => {
     try {
       const saved = localStorage.getItem('firstpass_last_export_folder')
-      if (saved) return saved
+      if (saved && !saved.endsWith('Exported_Keepers')) return saved
     } catch {}
     const sample = photos.find((p) => p.folder)
     if (sample?.folder) {
-      return `${sample.folder}/Exported_Keepers`
+      const cleanFolder = sample.folder.replace(/[\\/]+$/, '')
+      const sep = cleanFolder.includes('\\') ? '\\' : '/'
+      return `${cleanFolder}${sep}selected`
     }
     return ''
   })
@@ -170,25 +172,30 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
       onClick={() => !exporting && onClose()}
     >
       <div 
-        className="bg-gray-900 border border-gray-800 rounded-2xl max-w-md w-full p-6 shadow-2xl relative overflow-hidden animate-in fade-in zoom-in duration-150"
+        className="bg-gray-900 border border-gray-800 rounded-2xl max-w-lg w-full max-h-[88vh] flex flex-col shadow-2xl relative overflow-hidden animate-in fade-in zoom-in duration-150"
         onClick={(e) => e.stopPropagation()}
       >
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 text-gray-400 hover:text-white p-1 rounded-lg hover:bg-gray-800 transition-colors"
-        >
-          <X className="w-5 h-5" />
-        </button>
-
-        <div className="flex items-center gap-3 mb-5">
-          <div className="w-10 h-10 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center flex-shrink-0">
-            <FolderUp className="w-5 h-5" />
+        {/* Fixed Header */}
+        <div className="shrink-0 flex items-center justify-between gap-3 px-5 pt-4 pb-3 border-b border-gray-800/80">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center flex-shrink-0">
+              <FolderUp className="w-4 h-4" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-white">Export Culled Photos</h2>
+              <p className="text-xs text-gray-400">Save keepers or clean up rejected files</p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-base font-bold text-white">Export Culled Photos</h2>
-            <p className="text-xs text-gray-400">Save keepers or clean up rejected files</p>
-          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-white p-1.5 rounded-lg hover:bg-gray-800 transition-colors cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
+
+        {/* Scrollable Body */}
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4">
 
         {activeVipFilter && (
           <div className="mb-4 rounded-xl border border-indigo-500/40 bg-indigo-500/10 px-3 py-2 flex items-center justify-between gap-2">
@@ -453,7 +460,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
                 <Copy className="w-4 h-4 text-indigo-400 flex-shrink-0" />
                 <div className="text-xs">
                   <div className="font-semibold">Copy photos (Safest)</div>
-                  <div className="text-gray-500 text-[11px]">Copies files to destination without modifying originals</div>
+                  <div className="text-gray-500 text-[11px]">Copies files to destination without modifying source files</div>
                 </div>
               </label>
 
@@ -475,7 +482,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
                 <FolderUp className="w-4 h-4 text-amber-400 flex-shrink-0" />
                 <div className="text-xs">
                   <div className="font-semibold">Move photos</div>
-                  <div className="text-gray-500 text-[11px]">Moves files out of original folder to destination</div>
+                  <div className="text-gray-500 text-[11px]">Moves files out of current folder to destination</div>
                 </div>
               </label>
 
@@ -500,7 +507,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
                     <span>Standard XMP Sidecars (.xmp)</span>
                     <span className="bg-emerald-500/20 text-emerald-300 text-[10px] px-1.5 py-0.5 rounded font-mono font-medium">Non-Destructive</span>
                   </div>
-                  <div className="text-gray-400 text-[11px] mt-0.5">Writes 5★ & Green for Accepted, 1★ & Red for Rejected directly into standard .xmp sidecars next to your original files. Zero files moved!</div>
+                  <div className="text-gray-400 text-[11px] mt-0.5">Writes 5★ & Green for Accepted, 1★ & Red for Rejected directly into standard .xmp sidecars next to your photos. Zero files moved!</div>
                 </div>
               </label>
 
@@ -579,8 +586,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
           </div>
         )}
 
-        {/* Bottom Actions */}
-        <div className="flex items-center justify-end gap-3 pt-5 mt-5 border-t border-gray-800">
+        </div>
+
+        {/* Fixed Footer */}
+        <div className="shrink-0 flex items-center justify-end gap-3 px-5 py-3.5 border-t border-gray-800 bg-gray-900/95">
           <button
             onClick={onClose}
             disabled={exporting}
