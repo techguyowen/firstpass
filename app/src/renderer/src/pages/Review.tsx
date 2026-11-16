@@ -1259,22 +1259,66 @@ export default function Review() {
     return times.map((t) => `+${((t - t0) / 1000).toFixed(1)}s`)
   }, [burstPhotos])
 
-  // One-click: keep the best frame, reject the rest of the burst.
+  // Active batch: burst frames if present, else duplicate group when > 1 frame.
+  const batchPhotos = React.useMemo(() => {
+    if (burstPhotos.length > 1) return burstPhotos
+    if (duplicateGroup.length > 1) return duplicateGroup
+    return burstPhotos
+  }, [burstPhotos, duplicateGroup])
+
+  const batchBest = React.useMemo(() => {
+    if (burstBest) return burstBest
+    if (batchPhotos.length === 0) return null as Photo | null
+    let best = batchPhotos[0]
+    for (const p of batchPhotos) {
+      if ((p.overall_score ?? -Infinity) > (best.overall_score ?? -Infinity)) best = p
+    }
+    return best
+  }, [burstBest, batchPhotos])
+
+  const advancePastBatch = useCallback((groupIds: Set<number>) => {
+    if (!autoAdvance || currentIndex < 0) return
+    const nextOutside = filteredPhotos.slice(currentIndex + 1).find((p) => !groupIds.has(p.id))
+    if (nextOutside) {
+      navigate(`/review/${nextOutside.id}`)
+    }
+  }, [autoAdvance, currentIndex, filteredPhotos, navigate])
+
+  // One-click: keep the best frame, reject the rest of the batch/burst.
   const handlePickBurstBest = useCallback(async () => {
-    if (!burstBest || burstPhotos.length === 0) return
+    if (!batchBest || batchPhotos.length === 0) return
     try {
       await Promise.all(
-        burstPhotos.map((p) => {
-          const status = (p.id === burstBest.id ? 'accepted' : 'rejected') as Photo['status']
+        batchPhotos.map((p) => {
+          const status = (p.id === batchBest.id ? 'accepted' : 'rejected') as Photo['status']
           return api.updatePhotoStatus(p.id, status).then(() => updatePhotoStatusLocal(p.id, status))
         })
       )
-      setPhoto((prev) => (prev ? { ...prev, status: prev.id === burstBest.id ? 'accepted' : 'rejected' } : prev))
-      toast.success(`👑 Best frame picked: ${burstBest.filename}`, { id: 'burst-pick-best' })
+      setPhoto((prev) => (prev ? { ...prev, status: prev.id === batchBest.id ? 'accepted' : 'rejected' } : prev))
+      toast.success(`👑 Best frame picked: ${batchBest.filename}`, { id: 'burst-pick-best' })
+      advancePastBatch(new Set(batchPhotos.map((p) => p.id)))
     } catch {
       toast.error('Burst pick failed', { id: 'burst-pick-best' })
     }
-  }, [burstBest, burstPhotos, updatePhotoStatusLocal])
+  }, [batchBest, batchPhotos, updatePhotoStatusLocal, advancePastBatch])
+
+  // One-click: keep the currently viewed photo, reject the rest of the batch/burst.
+  const handlePickBurstCurrent = useCallback(async () => {
+    if (!photo || batchPhotos.length <= 1) return
+    try {
+      await Promise.all(
+        batchPhotos.map((p) => {
+          const status = (p.id === photo.id ? 'accepted' : 'rejected') as Photo['status']
+          return api.updatePhotoStatus(p.id, status).then(() => updatePhotoStatusLocal(p.id, status))
+        })
+      )
+      setPhoto((prev) => (prev ? { ...prev, status: 'accepted' } : prev))
+      toast.success(`✓ Kept ${photo.filename} & rejected ${batchPhotos.length - 1} in batch`, { id: 'burst-pick-current' })
+      advancePastBatch(new Set(batchPhotos.map((p) => p.id)))
+    } catch {
+      toast.error('Batch pick failed', { id: 'burst-pick-current' })
+    }
+  }, [photo, batchPhotos, updatePhotoStatusLocal, advancePastBatch])
 
   // Open the whole burst side-by-side in Multi-Up Compare with mirrored zoom & pan.
   const handleCompareBurst = useCallback(() => {
@@ -1789,6 +1833,11 @@ export default function Review() {
     if (matchesShortcut(e, 'pick_burst_best')) {
       e.preventDefault()
       void handlePickBurstBest()
+      return
+    }
+    if (matchesShortcut(e, 'pick_burst_current')) {
+      e.preventDefault()
+      void handlePickBurstCurrent()
       return
     }
     if (matchesShortcut(e, 'nav_next')) {
@@ -2712,6 +2761,14 @@ export default function Review() {
               >
                 <Crown size={12} />
                 <span>Pick Best & Reject Rest</span>
+              </button>
+              <button
+                onClick={() => void handlePickBurstCurrent()}
+                className="flex items-center gap-1 px-2 py-1 text-[11px] font-bold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer whitespace-nowrap"
+                title={`Keep current frame, reject the other ${burstPhotos.length - 1} (${getPrimaryShortcutKey('pick_burst_current')})`}
+              >
+                <Check size={12} />
+                <span>Keep Current & Reject Rest</span>
               </button>
               <button
                 onClick={handleCompareBurst}

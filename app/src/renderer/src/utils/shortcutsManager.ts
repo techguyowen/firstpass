@@ -49,6 +49,7 @@ export type ShortcutActionId =
   | 'swap_compare'
   | 'toggle_lock_ref'
   | 'pick_burst_best'
+  | 'pick_burst_current'
   | 'open_survey'
   | 'toggle_spray'
   | 'toggle_focus_peaking'
@@ -107,6 +108,7 @@ export const SHORTCUT_ACTIONS: ShortcutActionDef[] = [
   { id: 'swap_compare', label: 'Swap Ref & Candidate', category: 'Compare Mode', defaultKeys: ['s', 'S'], primaryKey: 'S' },
   { id: 'toggle_lock_ref', label: 'Toggle Reference Lock', category: 'Compare Mode', defaultKeys: ['l', 'L'], primaryKey: 'L' },
   { id: 'pick_burst_best', label: 'Pick Best Burst Frame & Reject Rest', category: 'Culling', defaultKeys: ['Shift+P'], primaryKey: 'Shift+P' },
+  { id: 'pick_burst_current', label: 'Keep Current Photo & Reject Rest in Batch', category: 'Culling', defaultKeys: ['Shift+K'], primaryKey: 'Shift+K' },
   { id: 'toggle_spray', label: 'Toggle Spray Can Tool', category: 'Culling', defaultKeys: ['s', 'S'], primaryKey: 'S' },
   { id: 'toggle_focus_peaking', label: 'Toggle Focus Peaking Edge Detection', category: 'Display & HUD', defaultKeys: ['p', 'P'], primaryKey: 'P' },
   { id: 'toggle_grid_overlay', label: 'Cycle Composition Grid Overlay (Thirds/Golden/Cross)', category: 'Display & HUD', defaultKeys: ['o', 'O'], primaryKey: 'O' }
