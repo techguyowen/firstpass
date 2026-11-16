@@ -10,6 +10,7 @@ import platform
 import subprocess
 import urllib.request
 import threading
+import time
 from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
@@ -74,6 +75,8 @@ _download_state = {
     "error_message": None
 }
 _download_lock = threading.Lock()
+_update_check_cache: dict = {}
+_UPDATE_CHECK_TTL = 600.0
 
 def _parse_semver(version_str: str) -> tuple:
     clean = version_str.lstrip("vV").split("-")[0].strip()
@@ -97,6 +100,10 @@ def _is_newer(latest: str, current: str) -> bool:
 def check_for_updates(db: Session = Depends(get_db)):
     settings = db.query(SettingsModel).first()
     repo = settings.github_repo if settings and settings.github_repo else "techguyowen/firstpass"
+    now = time.monotonic()
+    cached = _update_check_cache.get(repo)
+    if cached and (now - cached[0]) < _UPDATE_CHECK_TTL:
+        return cached[1]
     
     url = f"https://api.github.com/repos/{repo}/releases/latest"
     req = urllib.request.Request(url, headers={
@@ -170,7 +177,7 @@ def check_for_updates(db: Session = Depends(get_db)):
     asset_name = matched_asset.get("name") if matched_asset else None
     asset_size = matched_asset.get("size") if matched_asset else None
 
-    return {
+    result = {
         "has_update": has_update,
         "current_version": CURRENT_VERSION,
         "latest_version": tag_name.lstrip("vV"),
@@ -181,6 +188,8 @@ def check_for_updates(db: Session = Depends(get_db)):
         "asset_size": asset_size,
         "published_at": published_at
     }
+    _update_check_cache[repo] = (time.monotonic(), result)
+    return result
 
 def _download_worker(download_url: str, output_path: Path):
     global _download_state

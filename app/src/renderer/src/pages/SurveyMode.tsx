@@ -167,9 +167,16 @@ export default function SurveyMode() {
         {activeVipFilter && (
           <button
             onClick={clearVipFilter}
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 hover:text-white text-xs font-medium cursor-pointer shrink-0"
+            className="inline-flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 hover:text-white text-xs font-medium cursor-pointer shrink-0"
             title="Clear single-person filter"
           >
+            {activeVipFilter.thumbnail_b64 && (
+              <img
+                src={`data:image/jpeg;base64,${activeVipFilter.thumbnail_b64}`}
+                alt=""
+                className="w-4 h-4 rounded-full object-cover border border-indigo-400/60"
+              />
+            )}
             <span>Person: {activeVipFilter.label}</span>
             <span className="text-indigo-400">×</span>
           </button>

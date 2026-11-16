@@ -1278,6 +1278,10 @@ def add_vip_face(body: dict, db: Session = Depends(get_db)):
     except Exception:
         pass
 
+    if not label or label.startswith("VIP Face "):
+        existing_count = db.query(VipFace).count()
+        label = f"Person {existing_count + 1}"
+
     vip = VipFace(
         photo_id=photo_id,
         face_index=face_index,

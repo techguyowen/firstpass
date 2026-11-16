@@ -23,8 +23,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
   const acceptedPhotos = scopedPhotos.filter((p) => p.status === 'accepted')
   const rejectedPhotos = scopedPhotos.filter((p) => p.status === 'rejected')
   const taggedPhotos = scopedPhotos.filter((p) => Boolean(p.is_tagged))
+  const [excludeRejectedFromTagged, setExcludeRejectedFromTagged] = useState(true)
+  const taggedActivePhotos = taggedPhotos.filter((p) => p.status !== 'rejected')
+  const taggedRejectedCount = taggedPhotos.length - taggedActivePhotos.length
+  const effectiveTaggedPhotos = excludeRejectedFromTagged ? taggedActivePhotos : taggedPhotos
   const selectedPhotos = scopedPhotos.filter((p) => selectedIds.includes(p.id))
-  const taggedSelectedPhotos = selectedPhotos.filter((p) => Boolean(p.is_tagged))
+  const taggedSelectedPhotos = selectedPhotos.filter((p) => Boolean(p.is_tagged) && (!excludeRejectedFromTagged || p.status !== 'rejected'))
 
   const [scope, setScope] = useState<'accepted' | 'tagged' | 'tagged_selected' | 'rejected' | 'selected'>(() => {
     if (initialScope) return initialScope
@@ -82,7 +86,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
 
   let targetPhotos: Photo[] = []
   if (scope === 'accepted') targetPhotos = acceptedPhotos
-  else if (scope === 'tagged') targetPhotos = taggedPhotos
+  else if (scope === 'tagged') targetPhotos = effectiveTaggedPhotos
   else if (scope === 'tagged_selected') targetPhotos = taggedSelectedPhotos
   else if (scope === 'rejected') targetPhotos = rejectedPhotos
   else targetPhotos = selectedPhotos
@@ -313,7 +317,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
                 }`}
               >
                 <span className="flex items-center gap-1"><span>🏷️</span> Tagged</span>
-                <span className="text-[11px] opacity-80">({taggedPhotos.length})</span>
+                <span className="text-[11px] opacity-80">({effectiveTaggedPhotos.length})</span>
               </button>
 
               <button
@@ -352,6 +356,23 @@ export const ExportModal: React.FC<ExportModalProps> = ({ onClose, selectedIds =
                 <span className="text-[11px] opacity-80">({rejectedPhotos.length})</span>
               </button>
             </div>
+
+            {scope === 'tagged' && taggedRejectedCount > 0 && (
+              <div className="flex items-center justify-between gap-2 mt-2 px-2.5 py-1.5 rounded-lg bg-neutral-900 border border-neutral-800 text-[11px]">
+                <span className="text-neutral-400">
+                  {excludeRejectedFromTagged
+                    ? `Excluding ${taggedRejectedCount} rejected tagged photo${taggedRejectedCount === 1 ? '' : 's'}`
+                    : `Including ${taggedRejectedCount} rejected tagged photo${taggedRejectedCount === 1 ? '' : 's'}`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setExcludeRejectedFromTagged((v) => !v)}
+                  className="text-amber-300 hover:text-amber-200 font-semibold underline cursor-pointer"
+                >
+                  {excludeRejectedFromTagged ? 'Include rejected' : 'Exclude rejected'}
+                </button>
+              </div>
+            )}
 
             {/* When selection has tagged items, show a quick toggle for Tagged Selected vs All Selected */}
             {(scope === 'selected' || scope === 'tagged_selected') && taggedSelectedPhotos.length > 0 && (

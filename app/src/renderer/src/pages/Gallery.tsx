@@ -301,6 +301,33 @@ export default function Gallery() {
         navigate('/survey')
         return
       }
+      if (matchesShortcut(e, 'pick_burst_best') || matchesShortcut(e, 'pick_burst_current')) {
+        const keepCurrent = matchesShortcut(e, 'pick_burst_current')
+        const focusedPhoto = displayedPhotos[focusedIdx]
+        let batch: Photo[] = []
+        if (selected.size >= 2) {
+          batch = filteredPhotos.filter(p => selected.has(p.id))
+        } else if (focusedPhoto?.burst_group_id) {
+          batch = filteredPhotos.filter(p => p.burst_group_id === focusedPhoto.burst_group_id)
+        } else if (focusedPhoto?.duplicate_group_id) {
+          batch = filteredPhotos.filter(p => p.duplicate_group_id === focusedPhoto.duplicate_group_id)
+        }
+        if (batch.length > 1) {
+          e.preventDefault()
+          const winner = keepCurrent && focusedPhoto && batch.some(p => p.id === focusedPhoto.id)
+            ? focusedPhoto
+            : batch.reduce((best, p) => ((p.overall_score ?? -Infinity) > (best.overall_score ?? -Infinity) ? p : best), batch[0])
+          void Promise.all(
+            batch.map(p => {
+              const st: Photo['status'] = p.id === winner.id ? 'accepted' : 'rejected'
+              return api.updatePhotoStatus(p.id, st).then(() => updatePhotoStatusLocal(p.id, st))
+            })
+          ).then(() => {
+            toast.success(`${keepCurrent ? '✓ Kept' : '👑 Best:'} ${winner.filename} (rejected ${batch.length - 1})`, { id: 'gallery-batch-pick' })
+          }).catch(() => toast.error('Batch pick failed', { id: 'gallery-batch-pick' }))
+          return
+        }
+      }
       if (matchesShortcut(e, 'toggle_spray')) {
         e.preventDefault()
         setSprayMode(prev => !prev)
@@ -977,9 +1004,16 @@ export default function Gallery() {
           {activeVipFilter && (
             <button
               onClick={clearVipFilter}
-              className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 hover:text-white text-xs font-medium cursor-pointer"
+              className="inline-flex items-center gap-1.5 pl-1 pr-2.5 py-0.5 rounded-full bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 hover:text-white text-xs font-medium cursor-pointer"
               title="Clear single-person face filter"
             >
+              {activeVipFilter.thumbnail_b64 && (
+                <img
+                  src={`data:image/jpeg;base64,${activeVipFilter.thumbnail_b64}`}
+                  alt=""
+                  className="w-4 h-4 rounded-full object-cover border border-indigo-400/60"
+                />
+              )}
               <span>Person: {activeVipFilter.label}</span>
               <span className="text-indigo-400">×</span>
             </button>
