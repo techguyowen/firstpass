@@ -60,6 +60,7 @@ if (!gotSingleInstanceLock) {
 } else {
   app.on('second-instance', () => {
     if (mainWindow) {
+      if (!mainWindow.isVisible()) mainWindow.show()
       if (mainWindow.isMinimized()) mainWindow.restore()
       mainWindow.focus()
     }
@@ -172,7 +173,7 @@ function createWindow(): void {
     height: 900,
     minWidth: 1000,
     minHeight: 700,
-    show: false,
+    show: true,
     autoHideMenuBar: false,
     backgroundColor: '#090d14',
     icon: appIcon,
