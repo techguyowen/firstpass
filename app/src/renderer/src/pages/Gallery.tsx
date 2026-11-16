@@ -984,30 +984,48 @@ export default function Gallery() {
               <span className="text-indigo-400">×</span>
             </button>
           )}
-          {(activeVipFilter || filters.search || filters.status || filters.folder || filters.min_score || filters.is_blurry || filters.is_bokeh || filters.exposure_type || filters.has_faces || filters.has_closed_eyes) && filteredPhotos.length > 0 && (
-            <div className="hidden md:flex items-center gap-1">
-              <button
-                onClick={() => tagPhotos(filteredPhotos.map(p => p.id), true)}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-300 hover:bg-amber-500/25 hover:text-white text-[11px] font-medium cursor-pointer transition-colors"
-                title={`Tag all ${filteredPhotos.length} filtered photos for export`}
-              >
-                <Bookmark size={10} />
-                <span>Tag Filtered ({filteredPhotos.length})</span>
-              </button>
-              <button
-                onClick={() => {
-                  window.dispatchEvent(new CustomEvent('app:open-export', {
-                    detail: { selectedIds: filteredPhotos.map(p => p.id), initialScope: 'selected' }
-                  }))
-                }}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-500/15 border border-indigo-500/40 text-indigo-300 hover:bg-indigo-500/25 hover:text-white text-[11px] font-medium cursor-pointer transition-colors"
-                title={`Export all ${filteredPhotos.length} filtered photos`}
-              >
-                <FolderUp size={10} />
-                <span>Export Filtered</span>
-              </button>
-            </div>
-          )}
+          {(activeVipFilter || filters.search || filters.status || filters.folder || filters.min_score || filters.is_blurry || filters.is_bokeh || filters.exposure_type || filters.has_faces || filters.has_closed_eyes) && filteredPhotos.length > 0 && (() => {
+            const taggedInFilter = filteredPhotos.filter(p => p.is_tagged).length
+            const allTagged = taggedInFilter === filteredPhotos.length
+            return (
+              <div className="hidden md:flex items-center gap-1">
+                <button
+                  onClick={() => tagPhotos(filteredPhotos.map(p => p.id), !allTagged)}
+                  className={clsx(
+                    "inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-medium cursor-pointer transition-colors",
+                    allTagged
+                      ? "bg-amber-500/25 border-amber-400 text-amber-200 hover:bg-neutral-800 hover:text-neutral-300 hover:border-neutral-600"
+                      : "bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500/25 hover:text-white"
+                  )}
+                  title={allTagged ? `Untag all ${filteredPhotos.length} filtered photos` : `Tag all ${filteredPhotos.length} filtered photos for export`}
+                >
+                  <Bookmark size={10} />
+                  <span>{allTagged ? `Untag Filtered (${taggedInFilter})` : `Tag Filtered (${filteredPhotos.length})`}</span>
+                </button>
+                {taggedInFilter > 0 && !allTagged && (
+                  <button
+                    onClick={() => tagPhotos(filteredPhotos.map(p => p.id), false)}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-800 border border-neutral-700 text-neutral-300 hover:text-white text-[11px] font-medium cursor-pointer transition-colors"
+                    title={`Clear tags on ${taggedInFilter} tagged photo(s) in current filter`}
+                  >
+                    <span>Untag ({taggedInFilter})</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    window.dispatchEvent(new CustomEvent('app:open-export', {
+                      detail: { selectedIds: filteredPhotos.map(p => p.id), initialScope: 'selected' }
+                    }))
+                  }}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-500/15 border border-indigo-500/40 text-indigo-300 hover:bg-indigo-500/25 hover:text-white text-[11px] font-medium cursor-pointer transition-colors"
+                  title={`Export all ${filteredPhotos.length} filtered photos`}
+                >
+                  <FolderUp size={10} />
+                  <span>Export Filtered</span>
+                </button>
+              </div>
+            )
+          })()}
           <span className="flex items-center gap-1 text-emerald-400 font-medium">
             <CheckCircle2 size={13} />{stats.accepted}
           </span>
@@ -1084,6 +1102,12 @@ export default function Gallery() {
             className="flex items-center gap-1 px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white text-xs rounded-md"
           >
             <Bookmark size={12} /> Tag All
+          </button>
+          <button
+            onClick={() => tagPhotos(Array.from(selected), false)}
+            className="flex items-center gap-1 px-3 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs rounded-md border border-neutral-700"
+          >
+            Untag
           </button>
           {selected.size >= 2 && selected.size <= 4 && (
             <button

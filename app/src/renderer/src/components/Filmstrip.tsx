@@ -3,6 +3,7 @@ import { CheckCircle2, XCircle, PanelBottom, PanelRight, ChevronDown, ChevronRig
 import clsx from 'clsx'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { api } from '../api/client'
+import { usePhotosStore } from '../store/photosStore'
 import { preloadAndDecodeImage } from '../utils/imagePreloader'
 import type { Photo } from '../types/photo'
 
@@ -81,6 +82,8 @@ export default function Filmstrip({
   const [thumbSize, setThumbSize] = useState<ThumbSize>(loadThumbSize)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [dimRejected, setDimRejected] = useState<boolean>(loadDimRejected)
+  const sortBy = usePhotosStore((s) => s.filters.sort_by || 'overall_score_desc')
+  const setFilters = usePhotosStore((s) => s.setFilters)
 
   const handleSetThumbSize = (size: ThumbSize) => {
     setThumbSize(size)
@@ -258,6 +261,19 @@ export default function Filmstrip({
           </span>
         </div>
         <div className="flex items-center gap-1">
+          {/* Sort order selector */}
+          <select
+            value={sortBy}
+            onChange={(e) => setFilters({ sort_by: e.target.value })}
+            className="bg-neutral-900 border border-neutral-800 hover:border-neutral-600 text-neutral-300 text-[10px] font-semibold rounded-md px-1.5 py-0.5 mr-1 cursor-pointer focus:outline-none"
+            title="Filmstrip & Gallery sort order"
+          >
+            <option value="overall_score_desc">Score ↓</option>
+            <option value="date_asc">Time ↑</option>
+            <option value="date_desc">Time ↓</option>
+            <option value="sharpness_desc">Sharpness ↓</option>
+            <option value="filename_asc">Name A–Z</option>
+          </select>
           {/* Dim Rejected toggle: gray out rejected instead of hiding */}
           <button
             onClick={toggleDimRejected}
