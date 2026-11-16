@@ -92,10 +92,10 @@ export const nativeBridge: NativeBridge = {
         const { getVersion } = await import('@tauri-apps/api/app')
         return await getVersion()
       } catch {
-        return '1.0.4'
+        return '1.0.5'
       }
     }
-    return window.electronAPI?.getAppVersion() ?? '1.0.4'
+    return window.electronAPI?.getAppVersion() ?? '1.0.5'
   },
 
   getApiSecret: async () => {

@@ -189,7 +189,7 @@ async def lifespan(app: FastAPI):
 # ── App ────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="FirstPass API",
-    version="1.0.4",
+    version="1.0.5",
     description="High-performance AI-powered photo culling backend",
     lifespan=lifespan,
 )
@@ -253,7 +253,7 @@ async def health():
     gpu_info = getattr(app.state, "gpu_info", {"available": False, "type": "cpu", "name": "CPU"})
     return {
         "status": "ok",
-        "version": "1.0.4",
+        "version": "1.0.5",
         "gpu_available": gpu_info["available"],
         "gpu_type": gpu_info["type"],
         "gpu_name": gpu_info["name"],
