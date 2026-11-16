@@ -23,9 +23,8 @@ _descriptor_cache: Dict[tuple, np.ndarray] = {}
 _DESCRIPTOR_CACHE_MAX = 20000
 
 
-def _get_sface_path() -> Optional[str]:
-    """Locate face_recognition_sface_2021dec.onnx in dev or PyInstaller bundle."""
-    filename = "face_recognition_sface_2021dec.onnx"
+def _get_model_path(filename: str) -> Optional[str]:
+    """Locate an ONNX model in dev or PyInstaller bundle."""
     candidates = []
     if hasattr(sys, "_MEIPASS"):
         candidates.append(os.path.join(sys._MEIPASS, "models_data", filename))
@@ -49,7 +48,7 @@ def _get_thread_sface():
     if not hasattr(_thread_local, "sface_init"):
         _thread_local.sface = None
         if hasattr(cv2, "FaceRecognizerSF"):
-            sp = _get_sface_path()
+            sp = _get_model_path("face_recognition_sface_2021dec.onnx")
             if sp:
                 try:
                     _thread_local.sface = cv2.FaceRecognizerSF.create(sp, "")
@@ -57,6 +56,79 @@ def _get_thread_sface():
                     logger.warning(f"Failed to load SFace recognizer: {e}")
         _thread_local.sface_init = True
     return _thread_local.sface
+
+
+def _get_thread_yunet():
+    if not hasattr(_thread_local, "yunet_init"):
+        _thread_local.yunet = None
+        if hasattr(cv2, "FaceDetectorYN"):
+            yp = _get_model_path("face_detection_yunet_2023mar.onnx")
+            if yp:
+                try:
+                    _thread_local.yunet = cv2.FaceDetectorYN.create(yp, "", (320, 320), 0.55, 0.3, 5000)
+                except Exception as e:
+                    logger.warning(f"Failed to load YuNet detector for SFace alignment: {e}")
+        _thread_local.yunet_init = True
+    return _thread_local.yunet
+
+
+def _detect_yunet_faces(img_bgr: np.ndarray):
+    yunet = _get_thread_yunet()
+    if yunet is None or img_bgr is None or img_bgr.size == 0:
+        return None
+    h, w = img_bgr.shape[:2]
+    if w < 16 or h < 16:
+        return None
+    try:
+        yunet.setInputSize((w, h))
+        _, faces = yunet.detect(img_bgr)
+        return faces
+    except Exception:
+        return None
+
+
+def _match_yunet_row(yunet_faces, box: Optional[list], img_w: int, img_h: int, det_w: int, det_h: int):
+    if yunet_faces is None or len(yunet_faces) == 0:
+        return None
+    if box is None or len(box) != 4:
+        # Pick largest / highest-confidence face (used for single-face VIP thumbnail)
+        return max(yunet_faces, key=lambda r: float(r[2] * r[3]) * float(r[14]))
+    bx, by, bw, bh = [float(v) for v in box]
+    if det_w and det_h and (det_w != img_w or det_h != img_h):
+        sx = img_w / float(det_w)
+        sy = img_h / float(det_h)
+        bx, by, bw, bh = bx * sx, by * sy, bw * sx, bh * sy
+    bcx, bcy = bx + bw / 2.0, by + bh / 2.0
+    best_row = None
+    best_score = -1.0
+    for row in yunet_faces:
+        rx, ry, rw, rh = float(row[0]), float(row[1]), float(row[2]), float(row[3])
+        ix1, iy1 = max(bx, rx), max(by, ry)
+        ix2, iy2 = min(bx + bw, rx + rw), min(by + bh, ry + rh)
+        inter = max(0.0, ix2 - ix1) * max(0.0, iy2 - iy1)
+        union = bw * bh + rw * rh - inter
+        iou = inter / union if union > 0 else 0.0
+        rcx, rcy = rx + rw / 2.0, ry + rh / 2.0
+        dist = ((bcx - rcx) ** 2 + (bcy - rcy) ** 2) ** 0.5
+        score = iou - dist / max(img_w, img_h, 1) * 0.25
+        if score > best_score:
+            best_score = score
+            best_row = row
+    return best_row if best_score > 0.05 else None
+
+
+def _sface_feature_from_aligned(aligned_bgr: np.ndarray) -> Optional[np.ndarray]:
+    sface = _get_thread_sface()
+    if sface is None or aligned_bgr is None or aligned_bgr.size == 0:
+        return None
+    try:
+        feat = sface.feature(aligned_bgr).flatten().astype(np.float32)
+        norm = float(np.linalg.norm(feat))
+        if norm > 1e-8:
+            return (feat / norm).astype(np.float32)
+    except Exception as e:
+        logger.warning(f"SFace feature extraction failed: {e}")
+    return None
 
 
 def extract_face_descriptor(bgr_crop: np.ndarray) -> Optional[np.ndarray]:
@@ -70,11 +142,19 @@ def extract_face_descriptor(bgr_crop: np.ndarray) -> Optional[np.ndarray]:
     sface = _get_thread_sface()
     if sface is not None:
         try:
-            aligned = cv2.resize(bgr_crop, (112, 112), interpolation=cv2.INTER_AREA)
-            feat = sface.feature(aligned).flatten().astype(np.float32)
-            norm = float(np.linalg.norm(feat))
-            if norm > 1e-8:
-                return (feat / norm).astype(np.float32)
+            yunet_faces = _detect_yunet_faces(bgr_crop)
+            row = _match_yunet_row(yunet_faces, None, bgr_crop.shape[1], bgr_crop.shape[0], 0, 0)
+            if row is not None:
+                aligned = sface.alignCrop(bgr_crop, row)
+            else:
+                # Tight center crop fallback if YuNet misses on a pre-cropped face thumbnail
+                ch, cw = bgr_crop.shape[:2]
+                pad_x, pad_y = int(cw * 0.16), int(ch * 0.16)
+                tight = bgr_crop[pad_y:max(pad_y + 1, ch - pad_y), pad_x:max(pad_x + 1, cw - pad_x)]
+                aligned = cv2.resize(tight, (112, 112), interpolation=cv2.INTER_AREA)
+            feat = _sface_feature_from_aligned(aligned)
+            if feat is not None:
+                return feat
         except Exception as e:
             logger.warning(f"SFace feature extraction failed, falling back: {e}")
     try:
@@ -156,7 +236,7 @@ def match_vip_face_across_photos(
     if target_desc is None:
         return []
 
-    mode_key = "sface" if use_sface else "hist"
+    mode_key = "sface_aligned_v2" if use_sface else "hist"
 
     def _score_photo(photo: Any) -> Optional[Dict[str, Any]]:
         pid = getattr(photo, "id", None)
@@ -211,6 +291,9 @@ def match_vip_face_across_photos(
             if img_bgr is None:
                 return None
 
+        sface = _get_thread_sface() if use_sface else None
+        yunet_faces = _detect_yunet_faces(img_bgr) if (not all_cached and img_bgr is not None and sface is not None) else None
+
         best_sim = -1.0
         best_idx = 0
         for idx, box, det_w, det_h, cache_key, cached_desc in face_items:
@@ -218,8 +301,14 @@ def match_vip_face_across_photos(
             if desc is None:
                 eff_w = det_w or img_bgr.shape[1]
                 eff_h = det_h or img_bgr.shape[0]
-                crop = _crop_face_from_image(img_bgr, box, eff_w, eff_h)
-                desc = extract_face_descriptor(crop) if crop is not None else None
+                if sface is not None:
+                    row = _match_yunet_row(yunet_faces, box, img_bgr.shape[1], img_bgr.shape[0], eff_w, eff_h)
+                    if row is not None:
+                        aligned = sface.alignCrop(img_bgr, row)
+                        desc = _sface_feature_from_aligned(aligned)
+                if desc is None:
+                    crop = _crop_face_from_image(img_bgr, box, eff_w, eff_h)
+                    desc = extract_face_descriptor(crop) if crop is not None else None
                 if desc is not None:
                     with _descriptor_cache_lock:
                         if len(_descriptor_cache) >= _DESCRIPTOR_CACHE_MAX:

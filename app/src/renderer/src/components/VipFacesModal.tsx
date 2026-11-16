@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { X, Star, Loader2, UserCircle2, Filter } from 'lucide-react'
 import axios from 'axios'
 import { api } from '../api/client'
@@ -142,6 +143,8 @@ function VipFaceCard({
 export default function VipFacesModal({ isOpen, onClose }: VipFacesModalProps) {
   const [vips, setVips] = useState<VipFace[]>([])
   const filterByVipFace = usePhotosStore((s) => s.filterByVipFace)
+  const navigate = useNavigate()
+  const location = useLocation()
   const [loading, setLoading] = useState(false)
   const [filteringId, setFilteringId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -254,6 +257,9 @@ export default function VipFacesModal({ isOpen, onClose }: VipFacesModalProps) {
                       try {
                         await filterByVipFace({ id: v.id, label: v.label || `Face #${v.face_index + 1}`, thumbnail_b64: v.thumbnail_b64 })
                         onClose()
+                        if (location.pathname !== '/') {
+                          navigate('/')
+                        }
                       } finally {
                         setFilteringId(null)
                       }
